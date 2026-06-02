@@ -236,6 +236,7 @@ fn synth_module(feature: lazuli_ir::Feature) -> lazuli_ir::Module {
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features: vec![feature],
     }
 }

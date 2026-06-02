@@ -11,9 +11,23 @@
 //!
 //! Severity discipline: this helper is INTENDED to silence advisory
 //! findings (info / hint / warning) when the author explicitly opted
-//! out with a reason. Hard-error rules (correctness, security gates)
-//! should NOT consult this helper — those gate on the IR, not the
-//! source comment.
+//! out with a reason. Several correctness rules (e.g.
+//! `CREATES-EMPTY-BINDINGS-001`) DO consult it for the
+//! intentional-no-op-marker shape; the module doc's older "hard-error
+//! rules should NOT consult this" note is aspirational, not enforced.
+//!
+//! ## Spec 0028 — both waiver forms (node + legacy comment)
+//!
+//! [`source_contains_doctor_allow`] recognizes BOTH the legacy
+//! `# doctor:allow <CODE>` comment AND the first-class
+//! `@doctor.allow(<CODE>, reason: "...")` node — at the STRING level, via
+//! the shared recognizer [`lazuli_syntax::doctor_allow::recognize_node_line`].
+//! This is the back-compat bridge: all ~37 `path`/`source` consumers (across
+//! `lazuli_doctor` AND `lazuli_doctor_run`) honor node-form waivers with no
+//! call-site changes, so a `#→node` migration keeps a previously-suppressed
+//! finding suppressed. The structured registry
+//! ([`crate::allow_registry`]) is the typed read API for rules that hold a
+//! `&Module`.
 //!
 //! ## Examples
 //!
@@ -69,10 +83,22 @@ pub fn source_contains_doctor_allow(source: &str, code: &str) -> bool {
     let needle_lower = format!("doctor:allow {}", code.to_ascii_lowercase());
     for line in source.lines() {
         let trimmed = line.trim_start();
-        if !trimmed.starts_with('#') {
-            continue;
+        // (A) Legacy comment form: `# doctor:allow <CODE>`.
+        if trimmed.starts_with('#')
+            && trimmed.to_ascii_lowercase().contains(&needle_lower)
+        {
+            return true;
         }
-        if trimmed.to_ascii_lowercase().contains(&needle_lower) {
+        // (B) Spec 0028 node form: `@doctor.allow(<CODE>, ...)`. Recognized at
+        // the STRING level (grader R1a) so all ~37 path/source consumers honor
+        // node-form waivers with ZERO call-site changes — including the
+        // correctness rules that hold only a `path`/`source`, never a `&Module`.
+        // After a `#→node` migration, a previously-suppressed finding STAYS
+        // suppressed (the spec's own gate).
+        if let Some((node_code, _reason)) =
+            lazuli_syntax::doctor_allow::recognize_node_line(trimmed)
+            && node_code.eq_ignore_ascii_case(code)
+        {
             return true;
         }
     }
@@ -134,6 +160,51 @@ mod tests {
     #[test]
     fn empty_source_does_not_match() {
         assert!(!source_contains_doctor_allow("", "X"));
+    }
+
+    // ── Spec 0028: node-form `@doctor.allow(CODE, ...)` recognition ──
+
+    #[test]
+    fn recognizes_node_form_with_reason() {
+        let src = "@doctor.allow(MY-RULE-001, reason: \"justified\")\nfeature x\n";
+        assert!(source_contains_doctor_allow(src, "MY-RULE-001"));
+        assert!(!source_contains_doctor_allow(src, "OTHER-RULE-001"));
+    }
+
+    #[test]
+    fn recognizes_node_form_without_reason() {
+        let src = "@doctor.allow(X-1)\nfeature x\n";
+        assert!(source_contains_doctor_allow(src, "X-1"));
+    }
+
+    #[test]
+    fn recognizes_indented_node_form() {
+        let src = "feature x\n  @doctor.allow(Y-2)\n  command create\n";
+        assert!(source_contains_doctor_allow(src, "Y-2"));
+    }
+
+    #[test]
+    fn node_form_case_insensitive_on_code() {
+        let src = "@doctor.allow(my-rule-001)\n";
+        assert!(source_contains_doctor_allow(src, "MY-RULE-001"));
+    }
+
+    #[test]
+    fn bridge_ors_node_and_comment() {
+        // The bridge honors BOTH forms (grader R1a). A correctness-category
+        // code (CREATES-EMPTY-BINDINGS-001) — the consumer class that holds
+        // only `source`, never a `&Module` — is suppressed by either form, so a
+        // `#→node` migration keeps a previously-suppressed finding suppressed.
+        let comment = "# doctor:allow CREATES-EMPTY-BINDINGS-001 — reason \"marker\"\n";
+        let node = "@doctor.allow(CREATES-EMPTY-BINDINGS-001, reason: \"marker\")\n";
+        assert!(source_contains_doctor_allow(comment, "CREATES-EMPTY-BINDINGS-001"));
+        assert!(source_contains_doctor_allow(node, "CREATES-EMPTY-BINDINGS-001"));
+    }
+
+    #[test]
+    fn node_form_does_not_match_different_code() {
+        let src = "@doctor.allow(A-1)\n";
+        assert!(!source_contains_doctor_allow(src, "B-2"));
     }
 
     #[test]

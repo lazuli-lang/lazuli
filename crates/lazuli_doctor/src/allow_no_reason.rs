@@ -12,8 +12,11 @@
 //! mystery opt-outs that nobody can audit. This rule nudges (does not force)
 //! authors to explain *why* a diagnostic is suppressed.
 //!
-//! Trigger cue: fires when a `# doctor:allow <CODE>` directive has no
-//! `— reason "..."` tail.
+//! Trigger cue: fires when a `# doctor:allow <CODE>` directive (or a spec-0028
+//! `@doctor.allow(<CODE>)` node) has no reason. For the node form, a reason is
+//! REQUIRED when waiving an error-severity rule (per spec 0028); this
+//! source-only scanner nudges on every bare node allow, a superset that always
+//! covers the error case.
 //!
 //! ## Suppression
 //!
@@ -114,39 +117,62 @@ fn directive_code(line: &str) -> Option<String> {
 /// ```
 pub fn scan_allow_no_reason(source: &str) -> Vec<ReasonFinding> {
     // Meta opt-out: a file-level `# doctor:allow DOCTOR-ALLOW-NO-REASON-001`
-    // silences the whole rule. We detect it ourselves (rather than via the
-    // whole-line-only `source_contains_doctor_allow`) so an inline trailing
-    // opt-out counts too.
-    if source
-        .lines()
-        .any(|l| directive_code(l).is_some_and(|c| c.eq_ignore_ascii_case(CODE)))
-    {
+    // (comment OR node form) silences the whole rule. We detect it ourselves
+    // (rather than via the whole-line-only `source_contains_doctor_allow`) so an
+    // inline trailing opt-out counts too.
+    let self_suppressed = source.lines().any(|l| {
+        directive_code(l).is_some_and(|c| c.eq_ignore_ascii_case(CODE))
+            || node_allow_code(l).is_some_and(|(c, _)| c.eq_ignore_ascii_case(CODE))
+    });
+    if self_suppressed {
         return Vec::new();
     }
     let mut findings = Vec::new();
     for (idx, line) in source.lines().enumerate() {
-        let Some(code) = directive_code(line) else {
-            continue;
-        };
-        // A directive that suppresses THIS rule is the meta opt-out, never a
-        // reason-less target. (Also already short-circuited above, but keep the
-        // guard so the rule never flags its own opt-out marker.)
-        if code.eq_ignore_ascii_case(CODE) {
+        // (A) Legacy comment form: `# doctor:allow <CODE>` with no reason tail.
+        if let Some(code) = directive_code(line) {
+            // A directive that suppresses THIS rule is the meta opt-out, never a
+            // reason-less target. (Also short-circuited above; keep the guard.)
+            if !code.eq_ignore_ascii_case(CODE) && !line_allow_has_reason(line) {
+                findings.push(ReasonFinding {
+                    line: idx + 1,
+                    code: code.clone(),
+                    message: format!(
+                        "`# doctor:allow {code}` has no `— reason \"...\"` tail; \
+                         add `— reason \"<why this suppression is justified>\"`"
+                    ),
+                });
+            }
             continue;
         }
-        if line_allow_has_reason(line) {
-            continue;
+        // (B) Spec 0028 node form: `@doctor.allow(<CODE>)` with no `reason:`.
+        // Per the spec, a node waiving an ERROR-severity code WITHOUT a reason
+        // is itself a diagnostic. This source-only scanner cannot read the
+        // waived rule's severity, so it nudges on EVERY bare node allow (a
+        // superset that always includes the error case); callers with severity
+        // context can gate harder. Matches the comment-form behavior.
+        if let Some((code, reason)) = node_allow_code(line)
+            && !code.eq_ignore_ascii_case(CODE)
+            && reason.is_none()
+        {
+            findings.push(ReasonFinding {
+                line: idx + 1,
+                code: code.clone(),
+                message: format!(
+                    "`@doctor.allow({code})` has no `reason: \"...\"`; \
+                     add `reason: \"<why this suppression is justified>\"` \
+                     (required when waiving an error-severity rule)"
+                ),
+            });
         }
-        findings.push(ReasonFinding {
-            line: idx + 1,
-            code: code.clone(),
-            message: format!(
-                "`# doctor:allow {code}` has no `— reason \"...\"` tail; \
-                 add `— reason \"<why this suppression is justified>\"`"
-            ),
-        });
     }
     findings
+}
+
+/// Extract `(code, reason)` from a node-form `@doctor.allow(<CODE>, ...)` line.
+/// Thin wrapper over the shared recognizer so this rule and the bridge agree.
+fn node_allow_code(line: &str) -> Option<(String, Option<String>)> {
+    lazuli_syntax::doctor_allow::recognize_node_line(line)
 }
 
 #[cfg(test)]
@@ -217,6 +243,43 @@ mod tests {
     fn ignores_non_directive_comments() {
         let f = scan_allow_no_reason("# just a note\nkey = 1\n");
         assert!(f.is_empty());
+    }
+
+    // ── Spec 0028: node-form `@doctor.allow(CODE)` reason nudge ──
+
+    #[test]
+    fn node_bare_allow_fires() {
+        let f = scan_allow_no_reason("@doctor.allow(CREATES-EMPTY-BINDINGS-001)\n");
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].code, "CREATES-EMPTY-BINDINGS-001");
+        assert!(f[0].message.contains("reason"));
+    }
+
+    #[test]
+    fn node_reasoned_allow_silent() {
+        let f = scan_allow_no_reason("@doctor.allow(X-1, reason: \"justified\")\n");
+        assert!(f.is_empty());
+    }
+
+    #[test]
+    fn node_self_suppression_silences_rule() {
+        let src = "@doctor.allow(A-1)\n@doctor.allow(DOCTOR-ALLOW-NO-REASON-001)\n";
+        assert!(scan_allow_no_reason(src).is_empty());
+    }
+
+    #[test]
+    fn node_own_directive_never_flagged() {
+        let f = scan_allow_no_reason("@doctor.allow(DOCTOR-ALLOW-NO-REASON-001)\n");
+        assert!(f.is_empty());
+    }
+
+    #[test]
+    fn mixed_comment_and_node_both_fire() {
+        let src = "# doctor:allow A-1\n@doctor.allow(B-2)\n";
+        let f = scan_allow_no_reason(src);
+        assert_eq!(f.len(), 2);
+        assert!(f.iter().any(|x| x.code == "A-1"));
+        assert!(f.iter().any(|x| x.code == "B-2"));
     }
 
     #[test]

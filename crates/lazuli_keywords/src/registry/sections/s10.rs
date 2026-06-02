@@ -206,6 +206,14 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
         "@actor",
         "Identity-axis catalog atom (`@actor.<name>`, e.g. `@actor.system` → an app-level actor principal).",
     ),
+    // SPEC-0028 — `@doctor.allow(CODE, reason: "...")` first-class waiver node.
+    // Head token = `@doctor.allow` (the parser scans `.starts_with("@doctor.allow")`,
+    // which the proven-complete reducer keeps dotted). Replaces the `#`-comment
+    // `# doctor:allow` waiver (still honored during the migration window).
+    decorator(
+        "@doctor.allow",
+        "Doctor waiver annotation (`@doctor.allow(CODE, reason: \"...\")`) — suppresses a doctor finding on the following construct or the file.",
+    ),
     decorator("@anchor", "Anchor reference decorator."),
     decorator("@client", "Client extension decorator."),
     produces(

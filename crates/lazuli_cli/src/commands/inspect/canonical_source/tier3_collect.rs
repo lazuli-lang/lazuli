@@ -106,6 +106,7 @@ pub(super) fn collect_tier3_by_feature_with_aliases(
                 profiles: Vec::new(),
                 design: None,
                 rbac: None,
+                doctor_allows: Vec::new(),
                 features: vec![feature_ir],
             };
             plugin_semantic_resolver::apply_plugin_semantic_resolution(&mut transient, alias_map);

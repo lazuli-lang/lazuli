@@ -185,6 +185,7 @@ mod tests {
             profiles: Vec::new(),
             design: None,
             rbac: None,
+            doctor_allows: Vec::new(),
             features: vec![feature],
         }
     }

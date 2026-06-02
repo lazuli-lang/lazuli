@@ -179,6 +179,7 @@ fn full_capsule_emits_expected_integration_snapshot_structure() {
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features,
     };
     let files = generate_v1(&module, &GoEmitOptions::default());

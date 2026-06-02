@@ -41,6 +41,7 @@ pub mod auth;
 pub mod capability;
 pub mod command;
 pub mod design;
+pub mod doctor_allow;
 pub mod error_vocab;
 pub mod event;
 pub mod experience;

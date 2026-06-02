@@ -67,6 +67,7 @@ fn module_with(features: Vec<Feature>) -> Module {
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features,
     }
 }

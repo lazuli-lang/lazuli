@@ -59,6 +59,7 @@ pub fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features: Vec::new(),
     };
 
@@ -125,6 +126,23 @@ pub fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
         let profiles = app_manifest::parse_app_profiles(&source);
         if !profiles.is_empty() {
             module.profiles.extend(profiles);
+        }
+        // Spec 0028 — capture `@doctor.allow(CODE, reason: "...")` waiver nodes
+        // (and lifted legacy `# doctor:allow` comments) into the module's
+        // structured registry. A malformed node annotation is FATAL (mirrors a
+        // feature parse failure) — a silently-dropped waiver would re-surface a
+        // finding the author meant to suppress.
+        match lazuli_syntax::doctor_allow::capture_doctor_allows(&source) {
+            Ok(decls) => {
+                for decl in decls {
+                    module.doctor_allows.push(decl_to_ir(decl));
+                }
+            }
+            Err(err) => load_failures.push(format!(
+                "{}: doctor-allow annotation parse failed: {:?}",
+                path.display(),
+                err
+            )),
         }
         // Features via canonical-indent slice. A parse OR lower failure is
         // FATAL: skipping the feature would silently emit incomplete
@@ -213,6 +231,7 @@ pub fn build_module_with_source_from_path(
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features: Vec::new(),
     };
     let mut source_map = lazuli_ir::SourceMap { files: Vec::new() };
@@ -289,6 +308,20 @@ pub fn build_module_with_source_from_path(
         let profiles = app_manifest::parse_app_profiles(&source);
         if !profiles.is_empty() {
             module.profiles.extend(profiles);
+        }
+        // Spec 0028 — capture waiver nodes + lifted legacy comments (see the
+        // sibling call in `build_module_from_path`). FATAL on a malformed node.
+        match lazuli_syntax::doctor_allow::capture_doctor_allows(&source) {
+            Ok(decls) => {
+                for decl in decls {
+                    module.doctor_allows.push(decl_to_ir(decl));
+                }
+            }
+            Err(err) => load_failures.push(format!(
+                "{}: doctor-allow annotation parse failed: {:?}",
+                path.display(),
+                err
+            )),
         }
         match lazuli_syntax::parse_feature_skeletons(&source) {
             Ok(skeletons) => {
@@ -372,6 +405,29 @@ pub fn build_module_with_source_from_path(
 /// (covers the lowered `app/features/...` form). A read failure leaves
 /// `sql_text` as `None` — codegen then emits only the `SQL:` path and the
 /// doctor's `query.sql`/view file-existence rule reports the missing file.
+/// Spec 0028 — lift a parser-captured [`lazuli_syntax::doctor_allow::DoctorAllowDecl`]
+/// (AST-local; `lazuli_syntax` is IR-free) into the FROZEN
+/// [`lazuli_ir::DoctorAllow`] carried on `Module.doctor_allows`. A 1:1 field +
+/// scope map; the only conversion is `Span`.
+fn decl_to_ir(decl: lazuli_syntax::doctor_allow::DoctorAllowDecl) -> lazuli_ir::DoctorAllow {
+    use lazuli_syntax::doctor_allow::DoctorAllowScopeDecl;
+    let scope = match decl.scope {
+        DoctorAllowScopeDecl::File => lazuli_ir::DoctorAllowScope::File,
+        DoctorAllowScopeDecl::Construct { line } => {
+            lazuli_ir::DoctorAllowScope::Construct { line }
+        }
+    };
+    lazuli_ir::DoctorAllow {
+        code: decl.code,
+        reason: decl.reason,
+        scope,
+        legacy: decl.legacy,
+        span: decl
+            .span
+            .map(|s| lazuli_ir::Span { start: s.start, end: s.end }),
+    }
+}
+
 fn embed_sql_query_bodies(feature: &mut lazuli_ir::Feature, feature_dir: Option<&Path>) {
     let Some(feature_dir) = feature_dir else {
         return;

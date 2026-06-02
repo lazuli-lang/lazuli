@@ -14,6 +14,7 @@ fn emits_mixed_route_params_golden() {
         profiles: vec![],
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features: vec![feature.clone()],
     };
     let out = emit_route_params_ts(&feature, &module, "ts-web").expect("routes generated");

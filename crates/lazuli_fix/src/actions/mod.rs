@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::{FixRequest, FixResult};
 
+pub mod doctor_allow_comment;
 pub mod insert_tests_block;
 pub mod scaffold_errors_block;
 

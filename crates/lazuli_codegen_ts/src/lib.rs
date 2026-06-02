@@ -282,6 +282,7 @@ mod tests {
             profiles: vec![],
             design,
             rbac: None,
+            doctor_allows: Vec::new(),
             features: vec![],
         }
     }

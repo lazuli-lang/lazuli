@@ -80,6 +80,7 @@
             profiles: vec![],
             design: None,
             rbac: None,
+            doctor_allows: Vec::new(),
             features: vec![feature.clone()],
         };
         let out = emit_feature_sdk_ts(&feature, &module);

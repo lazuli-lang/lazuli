@@ -9,7 +9,9 @@ use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
 
-use crate::actions::{FixAction, insert_tests_block, scaffold_errors_block};
+use crate::actions::{
+    FixAction, doctor_allow_comment, insert_tests_block, scaffold_errors_block,
+};
 use crate::{FixOutcome, FixRequest, FixResult};
 
 /// Map of rule code → boxed [`FixAction`] handler.
@@ -122,6 +124,7 @@ impl Default for FixRegistry {
         let mut reg = Self::new();
         reg.register(Box::new(insert_tests_block::InsertTestsBlock));
         reg.register(Box::new(scaffold_errors_block::ScaffoldErrorsBlock));
+        reg.register(Box::new(doctor_allow_comment::DoctorAllowCommentToNode));
         reg
     }
 }
@@ -140,10 +143,12 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn default_registry_includes_both_built_in_actions() {
+    fn default_registry_includes_built_in_actions() {
         let codes = FixRegistry::default().supported_rules();
         assert!(codes.contains(&"TEST-MISSING-AUTHORED-001".to_owned()));
         assert!(codes.contains(&"ERROR-VOCAB-MISSING-001".to_owned()));
+        // spec 0028 — the comment→node migration codemod.
+        assert!(codes.contains(&"DOCTOR-ALLOW-LEGACY-COMMENT-001".to_owned()));
     }
 
     #[test]

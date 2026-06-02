@@ -46,3 +46,21 @@ A plain comment (`# just a note`) is unchanged — one flat `comment.line.number
 
 - **`LZI-COMMENT-NOISE-001`** (advisory, NEVER gates — `crates/lazuli_doctor/src/lzi_hygiene/lzi_comment_noise.rs`) — generalizes `CONFIG-NOISE-001` onto the `.lzi`/`.lzx` surface: fires on decorative-divider rulers (`# ========`, `# --------`, …) and on comment-dominant files (`comment_lines > semantic_lines`). Honors `# doctor:allow LZI-COMMENT-NOISE-001`. Preventive: the pilots' `.lzi` are already clean (zero dividers) — this is a ceiling on future comment drift, not a present-tense fix.
 
+
+## Spec 0028 — the first-class `@doctor.allow(...)` waiver node
+
+The canonical waiver is now a parsed annotation, NOT a comment:
+
+```
+@doctor.allow(LZI-FILE-SIZE-001, reason: "generated table")
+feature billing
+```
+
+Written on its own line, it attaches to the construct that FOLLOWS it (or the whole file when no construct follows / it sits at column 0 before any feature). Unlike the `#` comment form, the parser captures it as structured data on `lazuli_ir::Module.doctor_allows` (`{ code, reason, scope, legacy, span }`), so a tool — or an LLM authoring `.lzi` — can tell a waiver apart from prose.
+
+- **Grammar:** `@doctor.allow(<CODE>)` or `@doctor.allow(<CODE>, reason: "<text>")`. The reason is a single-line string literal. A malformed annotation (no parens, unterminated quote) is a hard parse error, never silently dropped.
+- **Reason required for error-severity waivers:** a node waiving an error-severity rule without a `reason:` is itself flagged by `DOCTOR-ALLOW-NO-REASON-001` (which now reads the node form too).
+- **Both forms are honored this window:** the legacy `# doctor:allow <CODE>` comment still suppresses. The shared string scanner `source_contains_doctor_allow` recognizes BOTH forms, so every doctor rule (advisory AND correctness, e.g. `CREATES-EMPTY-BINDINGS-001`) obeys a node waiver with no code change.
+- **Migrate with `lazuli fix`:** `DOCTOR-ALLOW-LEGACY-COMMENT-001` (advisory, never gates) fires on each legacy comment waiver; `lazuli fix --rule DOCTOR-ALLOW-LEGACY-COMMENT-001` rewrites that line `# doctor:allow X — reason "y"` → `@doctor.allow(X, reason: "y")` (point-fix, idempotent, indentation preserved). Banning the comment form outright is a FUTURE spec (0029), not 0028.
+
+- **`DOCTOR-ALLOW-LEGACY-COMMENT-001`** (advisory, NEVER gates — `crates/lazuli_doctor/src/lzi_hygiene/legacy_comment_allow_001.rs`) — nudges each legacy `# doctor:allow` comment toward the `@doctor.allow(...)` node + `lazuli fix`. Silent on the node form. Meta-suppress with `@doctor.allow(DOCTOR-ALLOW-LEGACY-COMMENT-001, reason: "...")`.

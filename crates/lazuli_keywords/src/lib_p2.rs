@@ -275,7 +275,15 @@ mod catalog_tests {
 
     /// Registry `@`-decorators that are NOT `.target` reference namespaces:
     /// bare field flags + the `@resume` lifecycle flow-sigil.
-    const NON_REFERENCE_DECORATORS: &[&str] = &["slug", "full_text", "owner_axis", "resume"];
+    const NON_REFERENCE_DECORATORS: &[&str] = &[
+        "slug",
+        "full_text",
+        "owner_axis",
+        "resume",
+        // SPEC-0028 — `@doctor.allow(CODE, ...)` is a waiver ANNOTATION, not a
+        // feature-local symbol reference, so it is not a REFERENCE_NAMESPACE.
+        "doctor.allow",
+    ];
 
     /// SPEC-07 (B): the identity-axis catalog atoms `@role`/`@scope`/`@actor`
     /// carry a scope leaf distinct from the feature-local named reference

@@ -144,6 +144,7 @@
             profiles: vec![],
             design: None,
             rbac: None,
+            doctor_allows: Vec::new(),
             features,
         }
     }

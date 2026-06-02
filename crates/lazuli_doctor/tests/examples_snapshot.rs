@@ -296,6 +296,7 @@ fn vocab_shadow_record_001_example_fires() {
             profiles: vec![],
             design: None,
             rbac: None,
+            doctor_allows: Vec::new(),
             features: vec![feature.clone()],
         };
         vocab_shadow_record_001::check(&feature, &module, path)
@@ -317,6 +318,7 @@ fn vocab_resource_wide_cluster_001_example_fires() {
             profiles: vec![],
             design: None,
             rbac: None,
+            doctor_allows: Vec::new(),
             features: vec![feature.clone()],
         };
         vocab_resource_wide_cluster_001::check(&feature, &module, path)

@@ -63,6 +63,7 @@ fn empty_module(features: Vec<Feature>) -> Module {
         profiles: vec![],
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features,
     }
 }
