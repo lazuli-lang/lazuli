@@ -62,7 +62,11 @@ func TestApiInvokeRunsPreludeBeforeHandler(t *testing.T) {
 
 	called := false
 	api := Api[struct{}, string]{
-		Name:    "test.api",
+		Name: "test.api",
+		// Public policy so this test exercises the prelude path; the
+		// policy gate (enforced first since SEC-API-POLICY-NULL) admits
+		// the call, then the prelude refuses.
+		Policy:  Policy{Name: "@policy.public", Atoms: []PolicyAtom{{Namespace: "scope", Name: "public"}}},
 		Handler: func(_ *Ctx, _ struct{}) (string, error) { called = true; return "ok", nil },
 		Prelude: []GateRef{{Kind: GateBehind, Name: "feature_a"}},
 	}
@@ -89,6 +93,7 @@ func TestApiInvokePassesPreludeRunsHandler(t *testing.T) {
 
 	api := Api[struct{}, string]{
 		Name:    "test.api",
+		Policy:  Policy{Name: "@policy.public", Atoms: []PolicyAtom{{Namespace: "scope", Name: "public"}}},
 		Handler: func(_ *Ctx, _ struct{}) (string, error) { return "ok", nil },
 		Prelude: []GateRef{{Kind: GateQuota, Name: "limit_a"}},
 	}
