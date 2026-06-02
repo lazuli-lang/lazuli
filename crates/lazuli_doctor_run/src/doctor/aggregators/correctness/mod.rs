@@ -183,6 +183,26 @@ pub(crate) fn diagnostics(
             });
         }
 
+        // ENUM-VARIANT-UNDECLARED-001 — error. A filter-predicate RHS or
+        // field-default enum literal naming a variant the enum never declared
+        // would silently lower to a `FromConst("<typo>")` literal that never
+        // matches; this rule rejects the typo before codegen.
+        for finding in correctness::enum_variant_undeclared_001::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::enum_variant_undeclared_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
         // EVENT-OUTBOX-001 — error (payments-class only; the rule
         // self-gates on feature name).
         for finding in correctness::event_outbox_001::check(&feature, &fact.path) {

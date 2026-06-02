@@ -14,7 +14,7 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 
 | Category | Module | Rule count | Theme |
 |---|---|---|---|
-| [Correctness](#correctness) | `correctness/` | 14 | Dangling references, shape mismatches, codegen contract violations |
+| [Correctness](#correctness) | `correctness/` | 15 | Dangling references, shape mismatches, codegen contract violations |
 | [Cross-feature contracts](#cross-feature-contracts) | `cross_feature/` | 3 | Microservices-mode contract gating |
 | [Lifecycle](#lifecycle) | `lifecycle/` | 10 | State-machine well-formedness |
 | [Poller](#poller) | `poller/` | 12 | Background poller invariants |
@@ -24,7 +24,7 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 | [Error vocabulary](#error-vocabulary) | `error_vocab/` | 7 | Typed error-message resolution chain |
 | [Vocabulary (Rule Zero)](#vocabulary-rule-zero) | `vocab/` | 36 | Vocabulary fitness — `VOCAB-*`, `MONEY-*`, `@owner_axis`, `conventions`, `rate_limit` |
 
-**Total: 103 rules.**
+**Total: 104 rules.**
 
 ---
 
@@ -38,6 +38,7 @@ Source: [`crates/lazuli_doctor/src/correctness/`](../../crates/lazuli_doctor/src
 | `CODEGEN-UNRESOLVED-BINDING-SOURCE-001` | error | `correctness/codegen_unresolved_binding_source_001.rs` | A `creates`/`updates`/`deletes` binding RHS (SET or authored `where`) is a path resolving to none of `{input, ctx, target, route, @fn(), literal, let}`; codegen would silently lower it to a `FromConst("<raw>")` garbage string. |
 | `COMMAND-INPUT-SHADOWS-FIELD-001` | error | `correctness/command_input_shadows_field_001.rs` | Typed `command.input` slot shares a name with a `creates`/`updates` resource field but a different `TypeRef`. |
 | `COMPOSITE-KEY-CONTRACT-001` | error | `correctness/composite_key_contract_001.rs` | `composite_key { fields ... }` references a name not declared on the resource (or an empty list). |
+| `ENUM-VARIANT-UNDECLARED-001` | error | `correctness/enum_variant_undeclared_001.rs` | A query filter-predicate RHS (`status == publishedd`) or resource field-default enum literal names a variant the target enum never declared; it would silently lower to a `FromConst("<typo>")` literal that never matches. |
 | `EVENT-GROUP-VARIANT-TYPE-001` | error | `correctness/event_group_variant_type_001.rs` | `event_group` variant payload field's `TypeRef::UserDefined` doesn't resolve to a scalar / capability / record / enum. |
 | `EVENT-OUTBOX-001` | warning | `correctness/event_outbox_001.rs` | Payments-class event (feature name contains `payment` or `billing`) lacks `outbox guaranteed`. |
 | `FULL-TEXT-TYPE-001` | error | `correctness/full_text_type_001.rs` | `@full_text` decorator on a non-text field — Postgres `to_tsvector` only tokenizes text columns. |

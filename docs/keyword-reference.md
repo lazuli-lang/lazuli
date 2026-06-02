@@ -147,7 +147,7 @@ _Generated from 690 capability rows across the `lazuli_keywords` registry._
 | `policies` | `keyword.control.section.lazuli` | `keyword` | — | Declares the policy block. | `POLICY-PREDICATE-001` |
 | `poller` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a polling integration. | `POLLER-CURSOR-MISSING-001`<br>`POLLER-DUAL-SCHEDULER-001`<br>`POLLER-HANDLER-ORPHAN-001`<br>`POLLER-IDEMPOTENCY-ATTEMPTS-MISSING-001`<br>`POLLER-MAX-RETRIES-UNBOUNDED-001`<br>`POLLER-NO-TERMINAL-001`<br>`POLLER-QUIRK-CATALOG-MISMATCH-001`<br>`POLLER-TERMINAL-FIELD-ENUM-001`<br>`POLLER-TERMINAL-NO-EMIT-001`<br>`POLLER-TICK-TOO-FAST-001` |
 | `purpose` | `keyword.control.statement.lazuli` | `keyword` | — | Feature purpose (iron-hand context). | `VOCAB-CONTEXT-PURPOSE-001` |
-| `query.list` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a list query (collection projection). | `DUPLICATE-QUERY-NAME-001`<br>`MISSING-POLICY-ON-QUERY-001` |
+| `query.list` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a list query (collection projection). | `DUPLICATE-QUERY-NAME-001`<br>`ENUM-VARIANT-UNDECLARED-001`<br>`MISSING-POLICY-ON-QUERY-001` |
 | `query.lookup` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a lookup query (single-record fetch). | — |
 | `query.sql` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a raw-SQL query. | — |
 | `query.view` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a database-view-backed query. | — |
