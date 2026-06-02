@@ -180,6 +180,54 @@ pub struct Resource {
     pub restrict_on_delete: Vec<RestrictOnDelete>,
 }
 
+/// Single source of truth for the framework-synthesized column NAMES
+/// the codegen layer auto-emits on every resource — the implicit row
+/// identity, the timestamp axis, and the soft-delete sentinels.
+///
+/// These are the column names that do NOT appear in [`Resource::fields`]
+/// yet exist in the emitted schema, so any surface that reasons about
+/// "is this name a convention column rather than an authored field"
+/// (the doctor's universal-column cluster filter, schema-diff column
+/// membership, SDK field skips) must agree on the SAME set. Keeping the
+/// literals here — and having every consumer import them — is what stops
+/// the doctor's parallel catalog from drifting away from what codegen
+/// actually emits.
+///
+/// The membership predicate is *name-based and unconditional* on purpose:
+/// the doctor's cluster filter treats `deleted_at` as a convention column
+/// regardless of whether a given resource opts into `soft_delete`, so it
+/// can never be mistaken for signal in structural-similarity matching.
+/// For the *conditional* (per-resource opt-in) set — what columns a
+/// specific resource actually synthesizes — use
+/// [`Resource::synthesized_soft_delete_columns`] /
+/// [`Resource::synthesized_columns`].
+pub mod synthesized_columns {
+    /// Implicit `id BIGSERIAL PRIMARY KEY` row identity (auto-emitted
+    /// unless the resource declares a `composite_key`).
+    pub const IDENTITY: &str = "id";
+
+    /// Timestamp axis emitted when `timestamps` is opted-in.
+    /// Mirrors `lazuli_codegen_go::emitter::schema_diff::ir`.
+    pub const TIMESTAMPS: &[&str] = &["created_at", "updated_at"];
+
+    /// Soft-delete sentinel + actor column names. The *resource-relative*
+    /// subset is selected by [`super::Resource::synthesized_soft_delete_columns`].
+    pub const SOFT_DELETE: &[&str] = &["deleted_at", "deleted_by"];
+
+    /// `true` when `name` is any framework-synthesized column the codegen
+    /// layer can auto-emit (identity, timestamps, or soft-delete). Used by
+    /// the doctor's universal-column filter so its set is derived from this
+    /// SoT instead of a hand-maintained duplicate literal.
+    pub fn is_synthesized_column(name: &str) -> bool {
+        name == IDENTITY || TIMESTAMPS.contains(&name) || SOFT_DELETE.contains(&name)
+    }
+
+    /// `true` when `name` is one of the implicit timestamp columns.
+    pub fn is_timestamp_column(name: &str) -> bool {
+        TIMESTAMPS.contains(&name)
+    }
+}
+
 impl Resource {
     /// The soft-delete columns this resource synthesizes that do NOT appear
     /// in [`Resource::fields`]. `soft_delete` projects a nullable
@@ -458,6 +506,58 @@ pub enum StorageValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn synthesized_columns_membership_is_the_shared_sot() {
+        use synthesized_columns as sc;
+        // Identity + timestamps + soft-delete sentinels are recognised.
+        assert!(sc::is_synthesized_column("id"));
+        assert!(sc::is_synthesized_column("created_at"));
+        assert!(sc::is_synthesized_column("updated_at"));
+        assert!(sc::is_synthesized_column("deleted_at"));
+        assert!(sc::is_synthesized_column("deleted_by"));
+        // Authored fields are not.
+        assert!(!sc::is_synthesized_column("name"));
+        assert!(!sc::is_synthesized_column("email"));
+        // Timestamp predicate is narrow.
+        assert!(sc::is_timestamp_column("created_at"));
+        assert!(!sc::is_timestamp_column("deleted_at"));
+        // The per-resource soft-delete projection is a SUBSET of the SoT
+        // name set — guards against the two lists drifting apart.
+        let mut r = Resource {
+            name: "R".into(),
+            public_contract: None,
+            tenancy: None,
+            soft_delete: true,
+            soft_delete_actor: true,
+            timestamps: None,
+            fields: vec![],
+            constraints: vec![],
+            validate: None,
+            validates: vec![],
+            retention: None,
+            previous_names: vec![],
+            span_ref: None,
+            lifecycle: None,
+            invariants: vec![],
+            lock: None,
+            composite_key: None,
+            conventions: Vec::new(),
+            lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
+            many_through: Vec::new(),
+            restrict_on_delete: Vec::new(),
+        };
+        for col in r.synthesized_soft_delete_columns() {
+            assert!(
+                sc::SOFT_DELETE.contains(col),
+                "{col} must be in the SoT SOFT_DELETE set"
+            );
+        }
+        r.soft_delete_actor = false;
+        assert_eq!(r.synthesized_soft_delete_columns(), &["deleted_at"]);
+    }
 
     #[test]
     fn convention_origin_distinguishes_author_override() {

@@ -20,6 +20,75 @@ feature publication
     )
 }
 
+/// G13 false-positive regression (2026-06-02): a lifecycle transition
+/// whose inline `tests` block uses the `allows when` / `denies when`
+/// predicate form must lower to a NON-EMPTY `TestBlock` (each `when`
+/// line becomes a `TestAssertion::Raw`). Before the fix, lifecycle had
+/// its own private `lower_test_line` that lacked the `when` → `Raw`
+/// fallback, so these lines dropped to nothing, the block lowered to
+/// `None`, and `VOCAB-TESTS-MISSING-001` false-fired. Both transition
+/// call sites now route through `crate::test_lowering::lower_test_block`.
+#[test]
+fn transition_when_predicate_tests_lower_to_non_empty_block() {
+    let feature = lower(&minimal_source(
+        r#"      lifecycle status
+        state scheduled
+        state published
+        transition publish
+          from scheduled
+          to published
+          tests
+            allows when input.note contains "ok"
+            denies when input.note is_empty"#,
+    ));
+    let lifecycle = feature.resources[0].lifecycle.as_ref().expect("lifecycle");
+    let tests = lifecycle.transitions[0]
+        .tests
+        .as_ref()
+        .expect("when-predicate transition tests must lower to Some(TestBlock), not None");
+    assert_eq!(tests.assertions.len(), 2, "{:?}", tests.assertions);
+    assert!(
+        tests
+            .assertions
+            .iter()
+            .all(|a| matches!(a, ir::TestAssertion::Raw { .. })),
+        "when-form lines lower to the Raw fallback: {:?}",
+        tests.assertions
+    );
+}
+
+/// The typed transition forms (`allows from <state> [as <actor>]`)
+/// must still lower to their typed variants after routing through the
+/// unified lowering — guards against a regression in the migration.
+#[test]
+fn transition_typed_from_tests_still_lower_typed() {
+    let feature = lower(&minimal_source(
+        r#"      lifecycle status
+        state scheduled
+        state published
+        transition publish
+          from scheduled
+          to published
+          tests
+            allows from scheduled
+            denies from published"#,
+    ));
+    let lifecycle = feature.resources[0].lifecycle.as_ref().expect("lifecycle");
+    let tests = lifecycle.transitions[0].tests.as_ref().expect("tests");
+    assert_eq!(
+        tests.assertions[0],
+        ir::TestAssertion::AllowsFrom {
+            state: "scheduled".to_owned()
+        }
+    );
+    assert_eq!(
+        tests.assertions[1],
+        ir::TestAssertion::DeniesFrom {
+            state: "published".to_owned()
+        }
+    );
+}
+
 #[test]
 fn lowers_minimal_lifecycle_to_ir() {
     let feature = lower(&minimal_source(

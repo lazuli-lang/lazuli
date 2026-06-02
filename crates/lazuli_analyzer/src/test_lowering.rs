@@ -21,6 +21,17 @@
 //! Funnelling command + lifecycle through ONE lowering closes that gap
 //! and keeps the authorable verb grammar in a single place.
 //!
+//! ## G13 (2026-06-02) — lifecycle was NOT actually unified
+//!
+//! Despite the note above, `lifecycle/mod.rs` kept a PRIVATE copy of
+//! `lower_tests` / `lower_test_line` that never grew the spec-0012
+//! `allows when` / `denies when` → [`ir::TestAssertion::Raw`] fallback.
+//! A lifecycle transition whose tests were all `when`-predicate lines
+//! therefore lowered to an EMPTY block (`None`), and
+//! `VOCAB-TESTS-MISSING-001` false-fired on features whose only inline
+//! coverage was lifecycle `when`-tests. Both transition call sites now
+//! call [`lower_test_block`] here; the duplicate is deleted.
+//!
 //! ## Closed assertion catalog
 //!
 //! The match arms mirror [`ir::TestAssertion`]. Lines the analyzer does

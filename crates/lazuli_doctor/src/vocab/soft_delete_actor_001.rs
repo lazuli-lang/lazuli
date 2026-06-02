@@ -86,8 +86,14 @@ fn check_resource(feature: &Feature, resource: &Resource, path: &Path) -> Option
         return None;
     }
 
-    let has_deleted_at = resource.fields.iter().any(|f| f.name == "deleted_at");
-    let has_deleted_by = resource.fields.iter().any(|f| f.name == "deleted_by");
+    // The hand-rolled pair is exactly the column names the `soft_delete by`
+    // trait synthesizes. Derive both names from the IR single-source-of-
+    // truth (`synthesized_columns::SOFT_DELETE` == `[deleted_at, deleted_by]`)
+    // so this detector can never drift from what the trait projects.
+    let sentinel = lazuli_ir::synthesized_columns::SOFT_DELETE[0]; // "deleted_at"
+    let actor = lazuli_ir::synthesized_columns::SOFT_DELETE[1]; // "deleted_by"
+    let has_deleted_at = resource.fields.iter().any(|f| f.name == sentinel);
+    let has_deleted_by = resource.fields.iter().any(|f| f.name == actor);
     if !(has_deleted_at && has_deleted_by) {
         return None;
     }

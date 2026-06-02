@@ -115,6 +115,7 @@ pub use nodes::report::{
     FilenameToken, FnInvocation, Report, ReportColumn, ReportColumnSource, ReportFilenamePattern,
     ReportFormat, ReportSource,
 };
+pub use nodes::resource::synthesized_columns;
 pub use nodes::resource::{
     BuiltinType, CompositeKey, ComputedDate, ComputedDateBase, ComputedDateOffset,
     ConventionOrigin, ConventionRef, CrossFeatureTarget, CurrencyCode, EnumDecl, EnumVariant,
