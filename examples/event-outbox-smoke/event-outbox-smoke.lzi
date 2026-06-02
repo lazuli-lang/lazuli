@@ -31,4 +31,8 @@ feature payments
     rate_limit none
       reason "internal system command, invoked only from the payment webhook"
     creates Payment from input
+      amount = input.amount
+      currency = input.currency
+      external_reference = input.external_reference
+      captured_at = input.captured_at
     emits payment_captured

@@ -1,0 +1,7 @@
+# MCP smoke package registry.
+# Declares the env var the `mcp_server knowledge_smoke` bearer auth reads.
+
+registry
+  env
+    group mcp
+      server MCP_AUTH_TOKEN: Secret required

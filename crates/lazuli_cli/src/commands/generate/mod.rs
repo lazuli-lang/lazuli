@@ -33,11 +33,12 @@ pub mod ts;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use crate::{
     GenerateKind, PlaywrightTarget, cmd_generate_command, cmd_generate_feature,
     cmd_generate_handler, cmd_generate_playwright, cmd_generate_rule, cmd_generate_transition,
-    cmd_generate_view, lazurite_manifest, project_root_for_input, version,
+    cmd_generate_view, doctor, lazurite_manifest, project_root_for_input, version,
 };
 
 /// Handler for the `Commands::Generate` clap arm.
@@ -70,6 +71,7 @@ pub fn generate_command(
     with_source: bool,
     allow_drops: bool,
     allow_version_mismatch: bool,
+    no_gate: bool,
     playwright_target: Option<PlaywrightTarget>,
 ) -> Result<()> {
     if !allow_version_mismatch {
@@ -81,6 +83,21 @@ pub fn generate_command(
             )
         })?;
         version::enforce_manifest_pin(manifest.as_ref())?;
+    }
+
+    // W0-4 (META-THEME) — the blocking doctor gate. For the artifact-emit
+    // kinds (`go`, `ts`, `openapi`) run the full Correctness + Error
+    // package doctor pass and REFUSE TO EMIT on any ERROR-severity
+    // finding, so a broken tree never ships at exit 0. The Wave-3 scaffold
+    // kinds (`feature`/`command`/`view`/…) only rewrite a single authored
+    // `.lzi`/`.lzx` block and never touch the runtime tree, so they are
+    // not gated here. `--check` (dry-run) still runs the gate: the whole
+    // point of a dry run is to learn whether a real run would emit.
+    if matches!(
+        kind,
+        GenerateKind::Go | GenerateKind::Ts | GenerateKind::Openapi
+    ) {
+        run_emit_gate(input, allow_version_mismatch, no_gate)?;
     }
 
     match kind {
@@ -159,6 +176,33 @@ pub fn generate_command(
             cmd_generate_transition::run(ident, &project_root)
         }
     }
+}
+
+/// Resolve the doctor profile for the gate and run it ahead of emit.
+///
+/// Profile precedence mirrors `lazuli doctor` with no `--security-profile`
+/// flag: manifest `[doctor] profile` > `strict`. (Generate has no
+/// `--security-profile` flag of its own, so there is no flag tier here.)
+/// The gate honors `--allow-version-mismatch` (drops `LAZULI-VERSION-*`)
+/// and `--no-gate` / `LAZULI_NO_GATE=1` (loud bypass).
+fn run_emit_gate(input: &Path, allow_version_mismatch: bool, no_gate: bool) -> Result<()> {
+    let project_root = project_root_for_input(input);
+    let security_profile = lazurite_manifest::load(&project_root)
+        .ok()
+        .flatten()
+        .and_then(|m| m.doctor)
+        .and_then(|d| d.profile)
+        .as_deref()
+        .and_then(SecurityProfile::parse)
+        .unwrap_or(SecurityProfile::Strict);
+    doctor::gate::run_generate_gate(
+        input,
+        security_profile,
+        doctor::gate::GateBypass {
+            no_gate,
+            allow_version_mismatch,
+        },
+    )
 }
 
 /// Reject codegen-style flags on the `lazuli generate feature` arm —

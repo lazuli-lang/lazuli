@@ -26,6 +26,7 @@ use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 use lazuli_doctor_run::{DoctorDiagnostic, DoctorSeverity, run_package};
 use tower_lsp::lsp_types::{Diagnostic as LspDiagnostic, DiagnosticSeverity, NumberOrString};
 
+pub(crate) mod gate;
 mod release;
 mod report_build;
 mod runtime_options;

@@ -177,20 +177,36 @@ impl DoctorDiagnostic {
     /// diagnostic.print();
     /// ```
     pub fn print(&self) {
+        println!("{}", self.render());
+    }
+
+    /// Same canonical row as [`print`](Self::print) but to **stderr** —
+    /// used by the W0-4 blocking gate, whose findings are part of the
+    /// command's failure stream (so a caller piping stdout still sees the
+    /// reason a `generate`/`check` refused to emit). Keeps equal fidelity
+    /// with `print()` (identical row format).
+    pub fn eprint(&self) {
+        eprintln!("{}", self.render());
+    }
+
+    /// The canonical `path:line:col: severity [CODE]: message` row shared
+    /// by [`print`](Self::print) (stdout) and [`eprint`](Self::eprint)
+    /// (stderr).
+    fn render(&self) -> String {
         let severity = match self.severity {
             DoctorSeverity::Error => "error",
             DoctorSeverity::Warning => "warning",
             DoctorSeverity::Info => "info",
             DoctorSeverity::Hint => "hint",
         };
-        println!(
+        format!(
             "{}:{}:{}: {severity} [{}]: {}",
             self.path.display(),
             self.line,
             self.column,
             self.code,
             self.message
-        );
+        )
     }
 }
 

@@ -40,6 +40,13 @@ pub(crate) enum Commands {
         input: PathBuf,
         #[arg(long, value_enum, default_value_t = CheckSecurityProfile::Strict)]
         security_profile: CheckSecurityProfile,
+        /// Bypass the blocking check gate (W0-4 META-THEME). By default
+        /// `lazuli check` exits non-zero on any ERROR-severity finding.
+        /// Pass `--no-gate` (or set `LAZULI_NO_GATE=1`) to still print
+        /// every finding (error-first) but exit 0. For a single
+        /// known-acceptable finding, prefer `# doctor:allow <CODE>`.
+        #[arg(long)]
+        no_gate: bool,
     },
     Doctor {
         input: PathBuf,
@@ -202,6 +209,17 @@ pub(crate) enum Commands {
         /// (go only)
         #[arg(long)]
         allow_drops: bool,
+        /// Bypass the blocking doctor gate (W0-4 META-THEME). By default
+        /// `lazuli generate <go|ts|openapi>` runs the full Correctness +
+        /// Error doctor pass and REFUSES to emit when any ERROR-severity
+        /// finding exists, so a broken tree never ships at exit 0. Pass
+        /// `--no-gate` (or set `LAZULI_NO_GATE=1`) to emit anyway; the gate
+        /// still prints everything it found and a loud BYPASSED notice. For
+        /// silencing a single known-acceptable finding, prefer the
+        /// per-finding `# doctor:allow <CODE>` waiver instead of this
+        /// all-or-nothing override.
+        #[arg(long)]
+        no_gate: bool,
         /// Playwright emit target (only used when kind == Playwright).
         /// Closed catalog: api-policy, lifecycle-gate, scalar-fixtures-barrel, all.
         #[arg(long, value_enum)]
