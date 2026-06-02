@@ -219,6 +219,153 @@ func TestResolveSource_FnCall_NotInEitherRegistry(t *testing.T) {
 	}
 }
 
+// --- multi-arg (N>1) struct binding (bug #19) ---
+//
+// A `@fn.foo(a, b, c)` binding lowers to FromFn("foo", [a,b,c]); the
+// handler declares `func(*Ctx, StructInput) (O, error)` with one struct
+// input whose fields map to the args by position. These prove the bridge
+// constructs the struct from the positional args (incl a *string field and
+// an int64/ID field), and fails closed (no panic) on arity / shape errors.
+
+// resolveTenantInputT mirrors pauta's generated accountgen.ResolveTenantInput:
+// two optional `*string` fields + a `lazuli.ID` (int64 alias) field, in
+// declaration order matching the binding args (agency_name, invite_code, user_id).
+type resolveTenantInputT struct {
+	AgencyName *string
+	InviteCode *string
+	UserID     ID
+}
+
+func TestResolveSource_FnCall_MultiArgBuildsStruct(t *testing.T) {
+	resetBindingFnRegistry()
+	resetHandlerRegistry()
+
+	var captured resolveTenantInputT
+	RegisterFn("account.resolve_or_create_tenant",
+		func(ctx *Ctx, input resolveTenantInputT) (int64, error) {
+			captured = input
+			return 4242, nil
+		})
+
+	// agency_name = "Acme" (string), invite_code = nil (unset optional),
+	// user_id = int64(7) (from ctx.actor.id).
+	src := FromFn("resolve_or_create_tenant", []Source{
+		FromConst("Acme"),
+		FromConst(nil),
+		FromConst(int64(7)),
+	})
+	ctx := &Ctx{Context: context.Background()}
+	got, err := resolveSource(ctx, src, struct{}{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	boxed, ok := got.(int64)
+	if !ok || boxed != 4242 {
+		t.Fatalf("expected boxed int64 4242, got %T %v", got, got)
+	}
+	if captured.AgencyName == nil || *captured.AgencyName != "Acme" {
+		t.Fatalf("AgencyName not populated by position: %+v", captured.AgencyName)
+	}
+	if captured.InviteCode != nil {
+		t.Fatalf("nil arg should leave *string field nil, got %v", *captured.InviteCode)
+	}
+	if captured.UserID != 7 {
+		t.Fatalf("UserID (int64/ID) not populated by position: got %d", captured.UserID)
+	}
+}
+
+func TestResolveSource_FnCall_MultiArg_PointerArgPassesThrough(t *testing.T) {
+	resetBindingFnRegistry()
+	resetHandlerRegistry()
+
+	var captured resolveTenantInputT
+	RegisterFn("account.resolve_or_create_tenant",
+		func(ctx *Ctx, input resolveTenantInputT) (int64, error) {
+			captured = input
+			return 1, nil
+		})
+
+	// invite_code arrives as a *string (not yet deref'd) — must still bind.
+	code := "INV-9"
+	src := FromFn("resolve_or_create_tenant", []Source{
+		FromConst("Beta"),
+		FromConst(&code),
+		FromConst(int64(3)),
+	})
+	ctx := &Ctx{Context: context.Background()}
+	if _, err := resolveSource(ctx, src, struct{}{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured.InviteCode == nil || *captured.InviteCode != "INV-9" {
+		t.Fatalf("*string arg should bind to *string field: %+v", captured.InviteCode)
+	}
+}
+
+func TestResolveSource_FnCall_MultiArg_WrongArityFailsClosed(t *testing.T) {
+	resetBindingFnRegistry()
+	resetHandlerRegistry()
+	RegisterFn("account.resolve_or_create_tenant",
+		func(ctx *Ctx, input resolveTenantInputT) (int64, error) {
+			return 0, nil
+		})
+
+	// 2 args but the struct has 3 fields → clear error, not a panic.
+	src := FromFn("resolve_or_create_tenant", []Source{
+		FromConst("Acme"),
+		FromConst(nil),
+	})
+	ctx := &Ctx{Context: context.Background()}
+	_, err := resolveSource(ctx, src, struct{}{})
+	if err == nil {
+		t.Fatal("expected arity-mismatch error, got nil")
+	}
+	if !contains(err.Error(), "field") || !contains(err.Error(), "2 args") {
+		t.Fatalf("error should explain arity mismatch; got %v", err)
+	}
+}
+
+func TestResolveSource_FnCall_MultiArg_NonStructInputFailsClosed(t *testing.T) {
+	resetBindingFnRegistry()
+	resetHandlerRegistry()
+	// Handler input is a scalar (not a struct) but binding passes 2 args.
+	RegisterFn("account.scalar_fn",
+		func(ctx *Ctx, input string) (int64, error) {
+			return 0, nil
+		})
+	src := FromFn("scalar_fn", []Source{FromConst("a"), FromConst("b")})
+	ctx := &Ctx{Context: context.Background()}
+	_, err := resolveSource(ctx, src, struct{}{})
+	if err == nil {
+		t.Fatal("expected non-struct-input error, got nil")
+	}
+	if !contains(err.Error(), "not a struct") {
+		t.Fatalf("error should say input is not a struct; got %v", err)
+	}
+}
+
+func TestResolveSource_FnCall_MultiArg_UnconvertibleArgFailsClosed(t *testing.T) {
+	resetBindingFnRegistry()
+	resetHandlerRegistry()
+	type twoField struct {
+		A string
+		B int64
+	}
+	RegisterFn("account.two_field_fn",
+		func(ctx *Ctx, input twoField) (int64, error) {
+			return 0, nil
+		})
+	// arg 1 is a string where field B is int64 → not convertible → error.
+	src := FromFn("two_field_fn", []Source{FromConst("ok"), FromConst("not-a-number")})
+	ctx := &Ctx{Context: context.Background()}
+	_, err := resolveSource(ctx, src, struct{}{})
+	if err == nil {
+		t.Fatal("expected unconvertible-arg error, got nil")
+	}
+	if !contains(err.Error(), "cannot bind") {
+		t.Fatalf("error should say arg cannot bind; got %v", err)
+	}
+}
+
 func contains(haystack, needle string) bool {
 	if len(needle) == 0 {
 		return true
