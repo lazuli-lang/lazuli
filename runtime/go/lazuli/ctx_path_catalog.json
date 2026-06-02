@@ -1,0 +1,14 @@
+{
+  "_comment": "SINGLE SOURCE OF TRUTH for the codegen<->runtime ctx-path face contract (M1 face-parity, bug #17). Codegen lowers `ctx.<head>.<rest>` to `lazuli.FromCtx(\"<head>.<rest>\")`; the runtime `readCtx` (runtime/go/lazuli/handle.go) must handle every canonical path the language recognizes, or the request 500s with 'unknown ctx path' (exactly how bug #17 shipped: `ctx.actor.id` -> FromCtx(\"actor.id\") had no readCtx arm). This catalog is the canonical recognized ctx-path set. Both faces are gated against it: readctx_parity_test.go asserts readCtx handles every path here AND that readCtx has no arm absent from here (catalog == readCtx, by construction); the Rust ctx_path_parity test asserts every ctx path the framework's own lowering emits is in this catalog. Add a path here AND a readCtx arm together; never one without the other.",
+  "paths": [
+    "user",
+    "user.id",
+    "user.org",
+    "user.org_id",
+    "actor.id",
+    "actor.user_id",
+    "actor.org_id",
+    "tenant.org_id",
+    "now"
+  ]
+}
