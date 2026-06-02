@@ -19,7 +19,7 @@
 //! `super::lzx::try_parse_policy_expr`. The re-export in
 //! `lzx/mod.rs` keeps that path stable across the R3-G split.
 
-use crate::ast::PolicyExprAst;
+use crate::ast::{PolicyAtomAst, PolicyExprAst, Span};
 
 use super::super::common::{SourceLine, line_error_owned};
 use super::super::error::ParseError;
@@ -51,6 +51,21 @@ pub(in crate::parser) fn try_parse_policy_expr(
     let trimmed = payload.trim();
     if trimmed.is_empty() {
         return Ok(None);
+    }
+    // W4-3 (INLINE-POLICY-ATOM-LIST-MISPARSE) — an inline comma-separated
+    // atom list on a command/query (`policy @role.ADMIN, @role.MANAGER`) is
+    // an OR of role atoms: an actor holding EITHER role is admitted. Without
+    // this, the whole comma string fell through to the raw back-compat path,
+    // lowered to ONE bogus `PolicyRef::Atom("role.ADMIN, @role.MANAGER")`,
+    // and the command/query was PERMANENTLY denied for everyone.
+    //
+    // Mirrors the named-policy comma fix (commit 65168666 /
+    // `parse_conditional_policy_refs`): split on top-level commas, peel each
+    // `@<ns>.<name>` atom, OR them. Restricted to the plain-atom list form so
+    // the named-policy `@policy.<name>` / `... when <pred>` conditional form
+    // (handled raw downstream by `format_conditional_policy`) is untouched.
+    if let Some(expr) = try_parse_inline_atom_list(trimmed) {
+        return Ok(Some(expr));
     }
     // Back-compat fast path: bare atom (no spaces, no parens, no keyword
     // boundaries). Examples: `@policy.create`, `@role.admin`,
@@ -90,6 +105,85 @@ pub(in crate::parser) fn looks_like_policy_expr(payload: &str) -> bool {
         }
     }
     false
+}
+
+/// W4-3 — recognise an INLINE comma-separated policy *atom list* on a
+/// command/query (`@role.ADMIN, @role.MANAGER`, `@scope.same_org,
+/// @role.admin`) and build the equivalent `Or` of atoms.
+///
+/// Returns `Some(Or([..]))` ONLY when the payload is a list of 2+ plain
+/// `@<ns>.<name>` atoms — every term must start with `@`, carry a `.`, and
+/// have a namespace that is NOT `policy` (the `@policy.<name>` reference and
+/// the GAP-09 `... when <pred>` conditional form are resolved RAW downstream
+/// by `format_conditional_policy`, so this path must leave them alone).
+/// Returns `None` for anything else (single atom, expression-shaped payload,
+/// a `@policy.*` ref, a `when`-gated term), so every existing path is
+/// preserved exactly.
+///
+/// Case is preserved verbatim (pilots write uppercase roles like
+/// `@role.ADMIN`), so this does NOT route through the strict lowercase
+/// `parse_policy_atom` catalog check — it splits leniently, mirroring the
+/// raw single-atom path's `<ns>.<name>` split that codegen already consumes.
+fn try_parse_inline_atom_list(payload: &str) -> Option<PolicyExprAst> {
+    // Must be a comma list; a single atom stays on the legacy raw path.
+    if !payload.contains(',') {
+        return None;
+    }
+    // Reject any expression-shaped or conditional payload up front: the
+    // `when`-gated / parenthesised / keyword'd forms are not a plain atom
+    // list. (A bare `or`/`and` payload is already handled by the expr
+    // parser; a `when` payload is the GAP-09 raw conditional form.)
+    if looks_like_policy_expr(payload) {
+        return None;
+    }
+    for tok in payload.split_whitespace() {
+        if tok == "when" {
+            return None;
+        }
+    }
+    let mut atoms: Vec<PolicyExprAst> = Vec::new();
+    for raw in payload.split(',') {
+        let term = raw.trim();
+        let atom = parse_inline_atom_term(term)?;
+        atoms.push(PolicyExprAst::Atom(atom));
+    }
+    if atoms.len() < 2 {
+        return None;
+    }
+    Some(PolicyExprAst::Or(atoms))
+}
+
+/// Peel one `@<ns>.<name>` term of an inline atom list. Returns `None` (so
+/// the whole list bails to the legacy raw path) when the term is not a plain
+/// atom: missing `@`, missing `.`, empty namespace/name, or a `@policy.*`
+/// reference (which has its own raw resolution downstream). Whitespace-free
+/// single token only — a term containing internal whitespace is not a bare
+/// atom.
+fn parse_inline_atom_term(term: &str) -> Option<PolicyAtomAst> {
+    if term.split_whitespace().count() != 1 {
+        return None;
+    }
+    let body = term.strip_prefix('@')?;
+    // No parenthesised-arg atoms in the inline list form (e.g.
+    // `@mfa.required(...)`); those keep the raw/expr paths.
+    if body.contains('(') || body.contains(')') {
+        return None;
+    }
+    let (namespace, name) = body.split_once('.')?;
+    if namespace.is_empty() || name.is_empty() {
+        return None;
+    }
+    // `@policy.<name>` references resolve through the feature `policies`
+    // block downstream (NOT a literal runtime atom) — leave them raw.
+    if namespace == "policy" {
+        return None;
+    }
+    Some(PolicyAtomAst {
+        namespace: namespace.to_owned(),
+        name: name.to_owned(),
+        args: None,
+        span: Span::new(0, 0),
+    })
 }
 
 #[cfg(test)]
@@ -246,6 +340,86 @@ mod tests {
             }
             other => panic!("expected And, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn inline_atom_list_lowers_to_or_of_atoms() {
+        // W4-3 (INLINE-POLICY-ATOM-LIST-MISPARSE) — `policy @role.ADMIN,
+        // @role.MANAGER` must become an OR of two role atoms (case
+        // preserved), NOT one bogus atom. Before the fix this returned
+        // `None` and the whole comma string shipped as a single denied atom.
+        let l = line("policy @role.ADMIN, @role.MANAGER");
+        let expr = try_parse_policy_expr(&l, "@role.ADMIN, @role.MANAGER")
+            .unwrap()
+            .expect("inline atom list must parse to a structured Or");
+        match expr {
+            PolicyExprAst::Or(terms) => {
+                assert_eq!(terms.len(), 2, "expected exactly two OR atoms");
+                match (&terms[0], &terms[1]) {
+                    (PolicyExprAst::Atom(a), PolicyExprAst::Atom(b)) => {
+                        assert_eq!(a.namespace, "role");
+                        assert_eq!(a.name, "ADMIN");
+                        assert_eq!(b.namespace, "role");
+                        assert_eq!(b.name, "MANAGER");
+                    }
+                    other => panic!("expected two Atom terms, got {other:?}"),
+                }
+            }
+            other => panic!("expected Or, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inline_atom_list_three_mixed_namespaces() {
+        let l = line("policy");
+        let expr = try_parse_policy_expr(&l, "@role.admin, @scope.same_org, @actor.system")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::Or(terms) => assert_eq!(terms.len(), 3),
+            other => panic!("expected Or of 3, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn single_atom_stays_raw_back_compat() {
+        // A bare single `@role.ADMIN` must NOT be promoted to an Or — it
+        // stays on the legacy raw path (returns None).
+        let l = line("policy @role.ADMIN");
+        assert_eq!(
+            try_parse_policy_expr(&l, "@role.ADMIN").unwrap(),
+            None,
+            "single inline atom must remain raw single-atom back-compat"
+        );
+    }
+
+    #[test]
+    fn named_policy_comma_form_stays_raw() {
+        // The named-policy `@policy.<name>` comma form is resolved RAW
+        // downstream (format_conditional_policy) — must NOT be intercepted.
+        let l = line("policy");
+        assert_eq!(
+            try_parse_policy_expr(&l, "@policy.admin, @policy.finance").unwrap(),
+            None,
+            "@policy.* comma form must stay raw for downstream resolution"
+        );
+    }
+
+    #[test]
+    fn conditional_when_form_stays_raw() {
+        // GAP-09 conditional form (`@policy.a when <p>, @policy.b when <p>`)
+        // must remain raw — the `when` keyword routes it to the conditional
+        // resolver, not the inline-atom-list OR.
+        let l = line("policy");
+        assert_eq!(
+            try_parse_policy_expr(
+                &l,
+                "@policy.admin when input.scope == \"Production\", @policy.finance when input.scope == \"Media\""
+            )
+            .unwrap(),
+            None,
+            "conditional when-gated form must stay raw"
+        );
     }
 
     #[test]
