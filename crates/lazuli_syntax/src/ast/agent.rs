@@ -164,9 +164,9 @@ pub enum AgentOutput {
     Stream(String),
     /// `output discriminator <Enum>` — single enum-variant output.
     Discriminator(String),
-    /// `output <Type>` — bare type reference. Disambiguated at lowering:
-    /// records with a `discriminator` marker field become DiscriminatedRecord;
-    /// everything else becomes Text (legacy form, soft-warned per Q-impl-5).
+    /// `output <Type>` — bare type reference. Lowered to `Text`; a future
+    /// expand pass would resolve records with a `discriminator` marker
+    /// field (unbuilt). Legacy form, soft-warned per Q-impl-5.
     Plain(String),
 }
 

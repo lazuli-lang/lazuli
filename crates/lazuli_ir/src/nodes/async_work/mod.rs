@@ -50,7 +50,7 @@ pub mod notification;
 pub mod shared;
 pub mod webhook;
 
-pub use job::{Job, JobBody, JobDeclarative, JobHandler, JobOperationalKind, JobTrigger};
+pub use job::{Job, JobBody, JobDeclarative, JobHandler, JobTrigger};
 pub use notification::{DigestStrategy, Notification, NotificationDigest, NotificationThrottle};
 pub use shared::{
     BackoffStrategy, ExternalCallRef, FanoutScope, FanoutSpec, IdempotencyKey, RetryPolicy,

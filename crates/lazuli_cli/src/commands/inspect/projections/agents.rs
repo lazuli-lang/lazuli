@@ -190,10 +190,10 @@ fn classify_agent_output(raw: Option<&str>) -> (Option<&'static str>, Option<Str
     ) {
         "text"
     } else if looks_like_symbol {
-        // Could be a record-with-discriminator (DiscriminatedRecord) or
-        // a plain record reference; expand-pass disambiguates. We label
-        // as `text` here to keep the file-local pass single-pass; the
-        // symbol is surfaced via `output_discriminator`.
+        // Could be a record-with-discriminator or a plain record
+        // reference; a future expand pass would disambiguate (unbuilt).
+        // We label as `text` here to keep the file-local pass single-pass;
+        // the symbol is surfaced via `output_discriminator`.
         "text"
     } else {
         "text"

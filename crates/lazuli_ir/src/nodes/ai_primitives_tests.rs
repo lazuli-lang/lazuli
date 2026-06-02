@@ -21,7 +21,6 @@
             (AgentOutputKind::Text, "text"),
             (AgentOutputKind::Stream, "stream"),
             (AgentOutputKind::DiscriminatedEnum, "discriminated_enum"),
-            (AgentOutputKind::DiscriminatedRecord, "discriminated_record"),
         ] {
             assert_eq!(serde_json::to_value(k).unwrap(), json!(s));
         }

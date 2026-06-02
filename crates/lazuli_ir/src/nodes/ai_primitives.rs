@@ -31,8 +31,11 @@
 //! - `Text` — bare `output <Type>`.
 //! - `Stream` — `output stream <Type>`.
 //! - `DiscriminatedEnum` — `output discriminator <Enum>`.
-//! - `DiscriminatedRecord` — `output <Record>` where the record's
-//!   `discriminator` field carries the enum tag.
+//!
+//! `output <Record>` (record-with-`discriminator`-field) is lowered to
+//! `Text` today; doctor validates the record/field via the `Text` arm of
+//! `agent_discriminator_diagnostics`. There is no separate IR variant for
+//! it — the resolved-record promotion (a future expand pass) is unbuilt.
 //!
 //! [`DiscriminatorRef`] captures the resolved discriminator target so
 //! codegen can emit the right unmarshaller without re-deriving the
@@ -109,9 +112,9 @@ pub struct Agent {
     pub output_kind: AgentOutputKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_type: Option<TypeRef>,
-    /// Resolved discriminator target. `None` for `Text` / `Stream` outputs;
-    /// `Some(Enum)` for `output discriminator <Enum>`; `Some(RecordField)`
-    /// for `output <Record>` after lowering disambiguates.
+    /// Resolved discriminator target. `None` for `Text` / `Stream` outputs
+    /// (including the `output <Record>` form, which lowers to `Text`);
+    /// `Some(Enum)` for `output discriminator <Enum>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_discriminator: Option<DiscriminatorRef>,
     /// `@llm.<name>` reference. The closed-namespace catalog enforces the
@@ -220,38 +223,29 @@ pub struct Api {
 }
 
 /// Closed catalog of agent output shapes. Discriminates plain text vs
-/// streaming vs the two discriminated-value forms.
+/// streaming vs the discriminated-enum form. `output <Record>` (record
+/// with a `discriminator` field) is currently lowered to `Text`; there
+/// is no separate variant for it (the expand-pass promotion is unbuilt).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentOutputKind {
-    /// `output <Type>` — bare type reference; the agent returns plain text
-    /// (or, for a record with a `discriminator` field, a discriminated
-    /// record — see `output_discriminator`).
+    /// `output <Type>` — bare type reference; the agent returns plain text.
+    /// Also covers `output <Record>` (record-with-`discriminator`-field)
+    /// today, which doctor validates via this arm's `output_discriminator`.
     Text,
     /// `output stream <Type>` — streaming response.
     Stream,
     /// `output discriminator <Enum>` — single enum-variant response.
     DiscriminatedEnum,
-    /// `output <Record>` where the record carries a `discriminator` field.
-    DiscriminatedRecord,
 }
 
 /// Resolved target of an agent's discriminator output. `Enum` for
-/// `output discriminator <Enum>`; `RecordField` for `output <Record>`
-/// when the record carries a typed discriminator field.
+/// `output discriminator <Enum>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum DiscriminatorRef {
     /// `output discriminator <Enum>` — payload is the enum.
     Enum(QualifiedName),
-    /// `output <Record>` — payload is the record; one of its fields
-    /// carries the `discriminator` marker. The analyzer resolves the
-    /// field + its enum type at lowering.
-    RecordField {
-        record: QualifiedName,
-        field: String,
-        enum_type: QualifiedName,
-    },
 }
 
 /// One `tools` entry on an [`Agent`]. `reference` names the tool;

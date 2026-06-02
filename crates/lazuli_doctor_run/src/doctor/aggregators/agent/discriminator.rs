@@ -64,13 +64,11 @@ pub(crate) fn agent_discriminator_diagnostics(
                     });
                 }
             }
-            // DiscriminatedRecord lowering produces output_kind=Text +
-            // output_type=Unresolved("X") today; the expand pass (Phase 5)
-            // is what promotes to DiscriminatedRecord and resolves the
-            // discriminator field. Until then `agent_discriminator_field_invalid`
-            // has no producer in IR, but we still report when the bare
-            // `output <Record>` references an unknown record so the
-            // author gets a fast signal.
+            // `output <Record>` lowering produces output_kind=Text +
+            // output_type=Unresolved("X") today; a future expand pass would
+            // resolve the discriminator field (unbuilt). For now we still
+            // report when the bare `output <Record>` references an unknown
+            // record so the author gets a fast signal.
             (ir::AgentOutputKind::Text, _) => {
                 if let Some(ir::TypeRef::Unresolved(name)) = agent.output_type.as_ref() {
                     // Heuristic: titlecase first letter means it's an
@@ -137,8 +135,8 @@ pub(crate) fn check_record_discriminator(
     tier3_facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {
     let Some(field_name) = record.discriminator_field.as_deref() else {
-        // No discriminator: it's a legacy `output <Record>` shape, not a
-        // DiscriminatedRecord. Cut A's soft-warn for legacy output is
+        // No discriminator: it's a legacy `output <Record>` shape (no
+        // discriminator field). Cut A's soft-warn for legacy output is
         // emitted in the LSP file-local layer (Phase 4); nothing to do
         // here.
         return Vec::new();

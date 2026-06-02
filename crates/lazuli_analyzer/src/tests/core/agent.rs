@@ -210,8 +210,8 @@ feature customer_support
 #[test]
 fn lower_agent_with_discriminated_record_resolves() {
     // Bare `output Action` lowers as Text + Some(output_type=Action).
-    // The expand pass (Phase 5) promotes to DiscriminatedRecord when
-    // it resolves `Action` to a record with a `discriminator` field.
+    // A future expand pass would resolve `Action` to a record with a
+    // `discriminator` field (unbuilt); for now it stays `Text`.
     let source = r#"
 feature customer
   agent extract_action
