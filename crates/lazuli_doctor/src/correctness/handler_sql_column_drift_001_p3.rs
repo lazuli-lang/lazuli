@@ -62,9 +62,12 @@ type User struct {
         (tmp, findings)
     }
 
-    /// Pilot incident replay: the exact `register_with_google.go`
-    /// pre-fix INSERT, anonymised down to the column list. The INSERT
-    /// omits `updated_at` — the rule MUST fire with `updated_at` named.
+    /// Pilot incident replay: a `register_with_google.go` INSERT that
+    /// omits an *author-declared* NOT NULL column (`password_hash`).
+    /// The rule MUST fire with `password_hash` named. (The synthesized
+    /// `id` / `created_at` / `updated_at` are deliberately also omitted
+    /// here and MUST NOT appear in the missing set — Postgres supplies
+    /// them.)
     #[test]
     fn pilot_incident_replay_fires() {
         let src = r#"package handlers
@@ -74,11 +77,11 @@ import "context"
 func RegisterWithGoogle(ctx context.Context) error {
     _, err := db.Exec(ctx,
         `INSERT INTO "user" (
-           org_id, org, email, name, password_hash,
+           org_id, org, email, name,
            registration_step, is_email_verified, is_phone_verified,
-           mfa_enabled, notifications_enabled, created_at
-         ) VALUES ($1, $1, $2, $3, '', 'role_pending', $4, false, false, true, $5)`,
-        orgID, email, name, verified, now,
+           mfa_enabled, notifications_enabled
+         ) VALUES ($1, $1, $2, $3, 'role_pending', $4, false, false, true)`,
+        orgID, email, name, verified,
     )
     return err
 }
@@ -88,16 +91,112 @@ func RegisterWithGoogle(ctx context.Context) error {
         match &findings[0].kind {
             FindingKind::Missing { missing } => {
                 assert!(
-                    missing.contains(&"updated_at".to_owned()),
-                    "expected updated_at in missing list, got {missing:?}",
+                    missing.contains(&"password_hash".to_owned()),
+                    "expected password_hash in missing list, got {missing:?}",
+                );
+                // Synthesized columns must never leak into the drift set.
+                assert!(
+                    !missing.contains(&"id".to_owned()),
+                    "id (BIGSERIAL identity) must not be flagged, got {missing:?}",
+                );
+                assert!(
+                    !missing.contains(&"created_at".to_owned())
+                        && !missing.contains(&"updated_at".to_owned()),
+                    "timestamps (DEFAULT NOW()) must not be flagged, got {missing:?}",
                 );
             }
             other => panic!("expected Missing, got {other:?}"),
         }
         assert_eq!(findings[0].table, "user");
         assert_eq!(findings[0].resource.as_deref(), Some("User"));
-        assert!(findings[0].message().contains("updated_at"));
+        assert!(findings[0].message().contains("password_hash"));
         assert!(findings[0].message().contains("NOT NULL"));
+    }
+
+    /// REGRESSION (W4, pauta false-positive class): a handler INSERT
+    /// that omits `id` (BIGSERIAL identity PK) and the timestamps but
+    /// enumerates every author-declared NOT NULL column MUST be clean.
+    /// Postgres auto-generates the serial PK and defaults the
+    /// timestamps; this is the canonical correct INSERT shape and the
+    /// rule fired on it before the synthesized-column exclusion.
+    #[test]
+    fn serial_pk_and_timestamps_omitted_does_not_fire() {
+        let src = r#"package handlers
+
+func Insert() {
+    _, _ = db.Exec(ctx, `INSERT INTO "user" (
+        org_id, org, email, name,
+        registration_step, is_email_verified, is_phone_verified,
+        password_hash, mfa_enabled, notifications_enabled
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`)
+}
+"#;
+        let (_tmp, findings) = run_against(src, "insert_user.go");
+        assert!(
+            findings.is_empty(),
+            "omitting serial id + DEFAULT-NOW timestamps must NOT fire; got: {findings:#?}",
+        );
+    }
+
+    /// CONTROL: same shape as the regression test but additionally
+    /// omits a real author-declared NOT NULL column (`email`). The rule
+    /// MUST still fire — and name only the author column, not the
+    /// synthesized ones that are also absent.
+    #[test]
+    fn real_required_column_omitted_still_fires() {
+        let src = r#"package handlers
+
+func Insert() {
+    _, _ = db.Exec(ctx, `INSERT INTO "user" (
+        org_id, org, name,
+        registration_step, is_email_verified, is_phone_verified,
+        password_hash, mfa_enabled, notifications_enabled
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`)
+}
+"#;
+        let (_tmp, findings) = run_against(src, "insert_user.go");
+        assert_eq!(findings.len(), 1, "got: {findings:#?}");
+        match &findings[0].kind {
+            FindingKind::Missing { missing } => {
+                assert_eq!(
+                    missing,
+                    &vec!["email".to_owned()],
+                    "expected exactly [email] (no synthesized columns), got {missing:?}",
+                );
+            }
+            other => panic!("expected Missing, got {other:?}"),
+        }
+    }
+
+    /// CONTROL: a handler that references a non-existent column
+    /// (`nonexistent_col`) while omitting the real required `email`
+    /// still fires the drift for the genuinely-missing author column.
+    /// (v0.1 does not separately validate that referenced columns
+    /// exist — but it must keep catching the omitted-required class even
+    /// when junk columns are present.)
+    #[test]
+    fn nonexistent_column_reference_still_catches_real_drift() {
+        let src = r#"package handlers
+
+func Insert() {
+    _, _ = db.Exec(ctx, `INSERT INTO "user" (
+        org_id, org, name, nonexistent_col,
+        registration_step, is_email_verified, is_phone_verified,
+        password_hash, mfa_enabled, notifications_enabled
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`)
+}
+"#;
+        let (_tmp, findings) = run_against(src, "insert_user.go");
+        assert_eq!(findings.len(), 1, "got: {findings:#?}");
+        match &findings[0].kind {
+            FindingKind::Missing { missing } => {
+                assert!(
+                    missing.contains(&"email".to_owned()),
+                    "expected email (real omitted required col), got {missing:?}",
+                );
+            }
+            other => panic!("expected Missing, got {other:?}"),
+        }
     }
 
     /// Happy path — INSERT enumerates every NOT NULL column. No finding.
