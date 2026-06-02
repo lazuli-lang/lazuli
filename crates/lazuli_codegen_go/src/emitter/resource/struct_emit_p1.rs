@@ -286,6 +286,16 @@ pub(super) fn emit_resource(
     if !encrypted_for_value.is_empty() {
         emit_resource_value_encryption_fields(p, &pascal, &encrypted_for_value);
     }
+    // HTML-sanitization wiring — emit the column→profile map so the
+    // runtime can rewrite each bound string value through the matching
+    // bluemonday policy at the write boundary (`applyCreates` /
+    // `applyUpdates`). Skipped entirely when the resource declares no
+    // `validate sanitize_html(<profile>)` field. Closes the previously
+    // no-op `sanitize_html` constraint (stored-XSS hole).
+    let sanitized_for_value: Vec<SanitizedFieldRef<'_>> = sanitized_fields(resource).collect();
+    if !sanitized_for_value.is_empty() {
+        emit_resource_value_sanitize_fields(p, &sanitized_for_value);
+    }
     p.dedent();
     p.line("}");
 

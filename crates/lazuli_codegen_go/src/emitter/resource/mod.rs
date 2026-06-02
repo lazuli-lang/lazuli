@@ -28,6 +28,7 @@ use super::types::TypeCtx;
 
 mod attributes;
 mod encryption;
+mod sanitize;
 mod struct_emit;
 
 #[cfg(test)]
@@ -37,6 +38,8 @@ mod test_support;
 mod encryption_helper_tests;
 #[cfg(test)]
 mod json_skip_tests;
+#[cfg(test)]
+mod sanitize_tests;
 #[cfg(test)]
 mod struct_emit_tests;
 

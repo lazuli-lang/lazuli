@@ -72,6 +72,17 @@ type Resource[T any] struct {
 	// `docs/proposals/encryption-vocab.md` §Codegen for the rule.
 	EncryptedColumns map[string]string
 
+	// SanitizeColumns names the columns declared with
+	// `validate sanitize_html(<profile>)` and maps each to its profile
+	// name (`strict` / `basic` / `markdown_safe`, matching the IR
+	// `SanitizeHtmlProfile` serde form). The runtime walks this at the
+	// write boundary (`applyCreates` / `applyUpdates`, see
+	// `sanitize_wire.go`) and rewrites each bound string value through
+	// the matching bluemonday policy before INSERT/UPDATE, so stored
+	// columns never hold raw attacker HTML. Nil when the resource has no
+	// sanitized fields — the runtime skips the loop in that case.
+	SanitizeColumns map[string]string
+
 	// Decrypt is the per-resource decrypt callback emitted by codegen
 	// alongside the `Decrypt<Resource>` helper. The runtime calls it on
 	// every scanned row right after `pgx.CollectOneRow` / `pgx.CollectRows`
@@ -104,6 +115,7 @@ func (r *Resource[T]) erased() *resourceErased {
 		Indexes:          r.Indexes,
 		HasMany:          r.HasMany,
 		EncryptedColumns: r.EncryptedColumns,
+		SanitizeColumns:  r.SanitizeColumns,
 		Decrypt:          r.Decrypt,
 	}
 }
@@ -123,6 +135,7 @@ type resourceErased struct {
 	Indexes          []Index
 	HasMany          []HasMany
 	EncryptedColumns map[string]string
+	SanitizeColumns  map[string]string
 	Decrypt          func(ctx *Ctx, row any) error
 }
 
