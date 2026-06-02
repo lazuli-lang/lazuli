@@ -240,3 +240,246 @@ pub(crate) fn event_pattern_covers(published: &str, consumed: &str) -> bool {
         .strip_suffix('*')
         .is_some_and(|prefix| consumed.starts_with(prefix))
 }
+
+#[cfg(test)]
+mod tests {
+    //! W3-3: the WS-* workspace aggregator (the cross-app boundary +
+    //! gateway contract) had no inline test. These pin the correctness/
+    //! security-critical codes: WS-APP-001 (duplicate app id), WS-APP-002
+    //! (local app entrypoint), WS-BOUNDARY-001 (boundary on unknown app),
+    //! WS-EVENT-001 (consumes with no compatible publisher — a silent
+    //! cross-app contract break), WS-GW-001/002 (gateway route target
+    //! errors), and WS-GW-003 (missing `auth propagate` — a gateway auth-
+    //! context inference footgun). A clean workspace stays quiet.
+    use super::*;
+    use crate::doctor::DoctorAppWorkspace;
+    use lazuli_ir::{
+        AppWorkspace, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
+        WorkspaceGatewayRoute,
+    };
+    use std::path::PathBuf;
+
+    fn app(name: &str, kind: &str, path: Option<&str>) -> WorkspaceApp {
+        WorkspaceApp {
+            name: name.to_owned(),
+            kind: kind.to_owned(),
+            path: path.map(str::to_owned),
+            contract: None,
+        }
+    }
+
+    fn boundary(app: &str, direction: &str, pattern: &str) -> WorkspaceBoundary {
+        WorkspaceBoundary {
+            app: app.to_owned(),
+            direction: direction.to_owned(),
+            pattern: pattern.to_owned(),
+        }
+    }
+
+    fn route(path: &str, kind: &str, target: &str, propagate: bool) -> WorkspaceGatewayRoute {
+        WorkspaceGatewayRoute {
+            path: path.to_owned(),
+            target_kind: kind.to_owned(),
+            target: target.to_owned(),
+            auth: propagate.then(|| "propagate".to_owned()),
+            tenant: propagate.then(|| "propagate".to_owned()),
+            timeout: None,
+            rate_limit: None,
+        }
+    }
+
+    fn ws(workspace: AppWorkspace) -> DoctorAppWorkspace {
+        DoctorAppWorkspace {
+            path: PathBuf::from("workspace.lzi"),
+            manifest: workspace,
+        }
+    }
+
+    fn full_propagation() -> Option<WorkspaceCommunication> {
+        Some(WorkspaceCommunication {
+            propagate: vec!["tenant".into(), "trace_id".into(), "request_id".into()],
+            sync_default: None,
+            async_default: None,
+        })
+    }
+
+    fn codes(diags: &[DoctorDiagnostic]) -> Vec<&str> {
+        diags.iter().map(|d| d.code.as_str()).collect()
+    }
+
+    fn run(workspace: AppWorkspace) -> Vec<DoctorDiagnostic> {
+        workspace_contract_diagnostics(Some(&ws(workspace)))
+    }
+
+    #[test]
+    fn clean_workspace_emits_nothing() {
+        let diags = run(AppWorkspace {
+            name: "main".into(),
+            apps: vec![
+                app("api", "local", Some("api/app.lzi")),
+                app("web", "local", Some("web/app.lzi")),
+            ],
+            shared_registry: None,
+            boundaries: vec![
+                boundary("api", "publishes", "order.*"),
+                boundary("web", "consumes", "order.created"),
+            ],
+            communication: full_propagation(),
+            gateways: vec![WorkspaceGateway {
+                name: "edge".into(),
+                routes: vec![route("/api", "app", "api", true)],
+            }],
+            span_ref: None,
+        });
+        assert!(diags.is_empty(), "clean workspace, got {:?}", codes(&diags));
+    }
+
+    #[test]
+    fn ws_app_001_fires_on_duplicate_app_id() {
+        let diags = run(AppWorkspace {
+            name: "main".into(),
+            apps: vec![
+                app("api", "local", Some("a/app.lzi")),
+                app("api", "local", Some("b/app.lzi")),
+            ],
+            shared_registry: None,
+            boundaries: vec![],
+            communication: None,
+            gateways: vec![],
+            span_ref: None,
+        });
+        let hits: Vec<_> = diags.iter().filter(|d| d.code == "WS-APP-001").collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "want one WS-APP-001, got {:?}",
+            codes(&diags)
+        );
+        assert_eq!(hits[0].severity, DoctorSeverity::Error);
+    }
+
+    #[test]
+    fn ws_app_002_fires_when_local_app_path_not_lzi() {
+        let diags = run(AppWorkspace {
+            name: "main".into(),
+            apps: vec![app("api", "local", Some("api/"))],
+            shared_registry: None,
+            boundaries: vec![],
+            communication: None,
+            gateways: vec![],
+            span_ref: None,
+        });
+        let hits: Vec<_> = diags.iter().filter(|d| d.code == "WS-APP-002").collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "want one WS-APP-002, got {:?}",
+            codes(&diags)
+        );
+    }
+
+    #[test]
+    fn ws_boundary_001_fires_on_unknown_app() {
+        let diags = run(AppWorkspace {
+            name: "main".into(),
+            apps: vec![app("api", "local", Some("api/app.lzi"))],
+            shared_registry: None,
+            boundaries: vec![boundary("ghost", "publishes", "x.*")],
+            communication: None,
+            gateways: vec![],
+            span_ref: None,
+        });
+        let hits: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code == "WS-BOUNDARY-001")
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "want one WS-BOUNDARY-001, got {:?}",
+            codes(&diags)
+        );
+        assert_eq!(hits[0].severity, DoctorSeverity::Error);
+    }
+
+    #[test]
+    fn ws_event_001_fires_when_consume_has_no_publisher() {
+        let diags = run(AppWorkspace {
+            name: "main".into(),
+            apps: vec![
+                app("api", "local", Some("api/app.lzi")),
+                app("web", "local", Some("web/app.lzi")),
+            ],
+            shared_registry: None,
+            // web consumes an event nobody publishes.
+            boundaries: vec![boundary("web", "consumes", "order.created")],
+            communication: None,
+            gateways: vec![],
+            span_ref: None,
+        });
+        let hits: Vec<_> = diags.iter().filter(|d| d.code == "WS-EVENT-001").collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "want one WS-EVENT-001, got {:?}",
+            codes(&diags)
+        );
+        assert_eq!(hits[0].severity, DoctorSeverity::Error);
+    }
+
+    #[test]
+    fn ws_gw_001_fires_when_route_target_kind_not_app() {
+        let diags = run(AppWorkspace {
+            name: "main".into(),
+            apps: vec![app("api", "local", Some("api/app.lzi"))],
+            shared_registry: None,
+            boundaries: vec![],
+            communication: full_propagation(),
+            gateways: vec![WorkspaceGateway {
+                name: "edge".into(),
+                routes: vec![route("/api", "feature", "api.thing", true)],
+            }],
+            span_ref: None,
+        });
+        let hits: Vec<_> = diags.iter().filter(|d| d.code == "WS-GW-001").collect();
+        assert_eq!(hits.len(), 1, "want one WS-GW-001, got {:?}", codes(&diags));
+        assert_eq!(hits[0].severity, DoctorSeverity::Error);
+    }
+
+    #[test]
+    fn ws_gw_002_fires_on_unknown_target_app() {
+        let diags = run(AppWorkspace {
+            name: "main".into(),
+            apps: vec![app("api", "local", Some("api/app.lzi"))],
+            shared_registry: None,
+            boundaries: vec![],
+            communication: full_propagation(),
+            gateways: vec![WorkspaceGateway {
+                name: "edge".into(),
+                routes: vec![route("/admin", "app", "ghost", true)],
+            }],
+            span_ref: None,
+        });
+        let hits: Vec<_> = diags.iter().filter(|d| d.code == "WS-GW-002").collect();
+        assert_eq!(hits.len(), 1, "want one WS-GW-002, got {:?}", codes(&diags));
+    }
+
+    #[test]
+    fn ws_gw_003_fires_when_route_missing_auth_propagate() {
+        let diags = run(AppWorkspace {
+            name: "main".into(),
+            apps: vec![app("api", "local", Some("api/app.lzi"))],
+            shared_registry: None,
+            boundaries: vec![],
+            communication: full_propagation(),
+            gateways: vec![WorkspaceGateway {
+                name: "edge".into(),
+                // propagate=false -> no `auth propagate` -> WS-GW-003.
+                routes: vec![route("/api", "app", "api", false)],
+            }],
+            span_ref: None,
+        });
+        let hits: Vec<_> = diags.iter().filter(|d| d.code == "WS-GW-003").collect();
+        assert_eq!(hits.len(), 1, "want one WS-GW-003, got {:?}", codes(&diags));
+    }
+}
