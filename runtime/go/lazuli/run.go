@@ -146,8 +146,22 @@ func (q *Query[A, R]) RunSQL(ctx *Ctx, args A) (any, error) {
 	}
 	defer rows.Close()
 
+	// Select the row collector by the destination type's Kind. A struct
+	// `R` (the common `query.view` / record-returning `query.sql` shape)
+	// maps column-by-name via `RowToStructByName`. A SCALAR `R` (e.g.
+	// `query.sql ... returns int64 / Text / bool`) has no struct fields to
+	// map and previously panicked here with
+	// `reflect: NumField of non-struct type` — those single-column results
+	// scan positionally via `pgx.RowTo[R]`. (W4-2 QUERY-SQL-SCALAR-PANIC.)
+	scalar := sqlReturnIsScalar[R]()
+
 	if q.SQLMany {
-		out, err := pgx.CollectRows(rows, pgx.RowToStructByName[R])
+		var out any
+		if scalar {
+			out, err = pgx.CollectRows(rows, pgx.RowTo[R])
+		} else {
+			out, err = pgx.CollectRows(rows, pgx.RowToStructByName[R])
+		}
 		if err != nil {
 			return nil, internalServerError(err, "sql scan failed")
 		}
@@ -155,7 +169,12 @@ func (q *Query[A, R]) RunSQL(ctx *Ctx, args A) (any, error) {
 		return out, nil
 	}
 
-	out, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[R])
+	var out any
+	if scalar {
+		out, err = pgx.CollectOneRow(rows, pgx.RowTo[R])
+	} else {
+		out, err = pgx.CollectOneRow(rows, pgx.RowToStructByName[R])
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &Error{Status: 404, Code: CodeNotFound,
 			Message: "no row matches SQL query"}
@@ -165,6 +184,28 @@ func (q *Query[A, R]) RunSQL(ctx *Ctx, args A) (any, error) {
 	}
 	_ = RunIncrement(ctx, q.Prelude)
 	return out, nil
+}
+
+// sqlReturnIsScalar reports whether the SQL row destination type R is a
+// single scalar (string/number/bool/[]byte/time, possibly pointer-wrapped)
+// rather than a struct that `pgx.RowToStructByName` can map by column name.
+// Struct returns (records, resources) keep the by-name path; everything else
+// scans the single result column positionally via `pgx.RowTo`.
+//
+// `time.Time` is a struct but is a scalar SQL value, so it is treated as
+// scalar (RowToStructByName on it would map by exported field names, which is
+// never what an authored `returns Timestamp` means).
+func sqlReturnIsScalar[R any]() bool {
+	var zero R
+	t := reflect.TypeOf(&zero).Elem()
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return true
+	}
+	// time.Time is the one struct that represents a scalar SQL column.
+	return t.PkgPath() == "time" && t.Name() == "Time"
 }
 
 func (q *Query[A, R]) sqlText() (string, error) {
