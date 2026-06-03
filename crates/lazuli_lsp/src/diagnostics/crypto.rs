@@ -24,7 +24,12 @@ pub(crate) fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
+        // A `@cap.*` token inside a `@doctor.allow(...)` reason is opaque prose,
+        // not a crypto contract declaration (spec 0028 Gap A).
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || lazuli_syntax::doctor_allow::line_is_doctor_allow_node(trimmed)
+        {
             continue;
         }
 

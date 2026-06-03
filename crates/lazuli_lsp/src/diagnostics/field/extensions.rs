@@ -90,7 +90,12 @@ pub(crate) fn extension_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
-        if line.trim_start().starts_with('#') {
+        let trimmed = line.trim_start();
+        // `ext.` inside a `@doctor.allow(...)` reason is opaque prose, not an
+        // extension reference (spec 0028 Gap A).
+        if trimmed.starts_with('#')
+            || lazuli_syntax::doctor_allow::line_is_doctor_allow_node(trimmed)
+        {
             continue;
         }
 

@@ -113,7 +113,13 @@ pub fn parse_design_document(source: &str) -> Result<DesignDeclAst, ParseError> 
     while i < lines.len() {
         let line = &lines[i];
         let trimmed = line.text.trim_start();
-        if is_trivia(trimmed) {
+        // Spec 0028 Gap B: a file-level `@doctor.allow(...)` waiver node may lead
+        // `design.lzi` (before the required `design <name>` declaration). The
+        // waiver is captured separately by the module loader's
+        // `capture_doctor_allows`; the block grammar only needs to ACCEPT (skip)
+        // it like trivia so the required-first-declaration rule still holds for
+        // genuine content.
+        if is_trivia(trimmed) || super::super::doctor_allow::is_node_line(trimmed) {
             i += 1;
             continue;
         }
@@ -174,6 +180,13 @@ fn parse_design_decl(
         let line = &lines[i];
         let trimmed_raw = line.text.trim_start();
         if is_trivia(trimmed_raw) {
+            i += 1;
+            continue;
+        }
+        // Spec 0028 Gap B: a `@doctor.allow(...)` waiver node is a valid block
+        // child anywhere a `# doctor:allow` comment used to be valid trivia. Skip
+        // it (the loader captures it) before applying the closed-group grammar.
+        if super::super::doctor_allow::is_node_line(trimmed_raw) {
             i += 1;
             continue;
         }
@@ -419,6 +432,38 @@ design alpha
         let ast = super::parse_design_document(source).expect("parses");
         assert_eq!(ast.name, "alpha");
         assert_eq!(ast.extends.as_deref(), Some("base"));
+    }
+
+    #[test]
+    fn design_accepts_leading_doctor_allow_node() {
+        // Spec 0028 Gap B: a file-level `@doctor.allow(...)` waiver may lead
+        // design.lzi (before the required `design <name>` declaration) and must
+        // not break the required-first-declaration rule.
+        let source = "@doctor.allow(LZI-FILE-SIZE-001, reason: \"generated tokens\")\ndesign tokens\n  space\n    sm 4px\n";
+        let ast = super::parse_design_document(source).expect("parses with leading waiver node");
+        assert_eq!(ast.name, "tokens");
+        assert_eq!(ast.spaces.len(), 1);
+    }
+
+    #[test]
+    fn design_accepts_doctor_allow_node_as_block_child() {
+        // The waiver node may also appear as a block child (mid-block).
+        let source = "design tokens\n  @doctor.allow(LZI-FILE-SIZE-001, reason: \"gen\")\n  space\n    sm 4px\n";
+        let ast = super::parse_design_document(source).expect("parses with child waiver node");
+        assert_eq!(ast.name, "tokens");
+        assert_eq!(ast.spaces.len(), 1);
+    }
+
+    #[test]
+    fn design_still_requires_first_declaration_for_real_content() {
+        // Guard: a non-waiver, non-design leading line still errors.
+        let source = "color\n  primary\n    base \"#fff\"\n";
+        let err = super::parse_design_document(source).unwrap_err();
+        assert!(
+            err.to_string().contains("must begin with a `design")
+                || err.to_string().contains("design <name>"),
+            "expected required-declaration diagnostic, got: {err}"
+        );
     }
 
     #[test]

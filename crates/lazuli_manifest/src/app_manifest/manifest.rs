@@ -110,7 +110,14 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
 
     for (line_index, line) in lines.iter().enumerate().skip(start + 1) {
         let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
+        // Spec 0028 Gap B: a `@doctor.allow(...)` waiver node is valid anywhere a
+        // `# doctor:allow` comment used to be — skip it (the module loader
+        // captures the waiver separately) so it never pollutes the section
+        // cursor state.
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || lazuli_syntax::doctor_allow::is_node_line(trimmed)
+        {
             continue;
         }
         if leading_spaces(line) == 0 {
@@ -216,6 +223,18 @@ mod tests {
     fn captures_identity_fields() {
         let src = "app Acme\n  title \"Acme\"\n  version \"1.0\"\n";
         let manifest = parse_app_manifest(src).expect("app header");
+        assert_eq!(manifest.name, "Acme");
+        assert_eq!(manifest.title.as_deref(), Some("Acme"));
+        assert_eq!(manifest.version.as_deref(), Some("1.0"));
+    }
+
+    #[test]
+    fn accepts_doctor_allow_node_in_app_manifest() {
+        // Spec 0028 Gap B: a `@doctor.allow(...)` waiver node — file-level
+        // (before `app`) AND as a block child — must parse without disturbing
+        // the captured identity fields.
+        let src = "@doctor.allow(LZI-FILE-SIZE-001, reason: \"big app\")\napp Acme\n  @doctor.allow(SOME-RULE-001, reason: \"ok\")\n  title \"Acme\"\n  version \"1.0\"\n";
+        let manifest = parse_app_manifest(src).expect("app header parses with waiver nodes");
         assert_eq!(manifest.name, "Acme");
         assert_eq!(manifest.title.as_deref(), Some("Acme"));
         assert_eq!(manifest.version.as_deref(), Some("1.0"));

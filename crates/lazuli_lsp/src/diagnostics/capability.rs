@@ -26,7 +26,15 @@ pub(crate) fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnost
 
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') || !line.contains("@cap.File") {
+        // Skip blanks, `#` comments, lines with no `@cap.File`, AND the
+        // `@doctor.allow(...)` waiver node — a reason mentioning `@cap.File`
+        // (e.g. `@cap.File[]`) is opaque prose, not a storage contract
+        // declaration (spec 0028 Gap A).
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || !line.contains("@cap.File")
+            || lazuli_syntax::doctor_allow::line_is_doctor_allow_node(trimmed)
+        {
             continue;
         }
 
@@ -222,4 +230,32 @@ pub(crate) fn is_float_in_range(value: &str, min: f64, max: f64) -> bool {
         .parse::<f64>()
         .map(|v| v >= min && v <= max)
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod doctor_allow_gap_a_tests {
+    use super::*;
+
+    #[test]
+    fn doctor_allow_reason_with_cap_file_does_not_false_fire() {
+        // Spec 0028 Gap A: `@cap.File[]` in a waiver reason is opaque prose, not
+        // a storage contract — it must NOT raise storage-file-contract /
+        // cap_file_size_unit_invalid.
+        let src =
+            "@doctor.allow(SOME-RULE-001, reason: \"covers @cap.File[] attachments\")\nfeature x\n";
+        assert!(
+            file_capability_contract_diagnostics(src).is_empty(),
+            "node-line reason mentioning @cap.File must not produce a storage finding"
+        );
+    }
+
+    #[test]
+    fn genuine_cap_file_without_contract_still_fires() {
+        // A real `@cap.File` field with no max_size/accept still warns.
+        let src = "  avatar: File @cap.File\n";
+        assert!(
+            !file_capability_contract_diagnostics(src).is_empty(),
+            "a genuine @cap.File without a contract must still fire"
+        );
+    }
 }

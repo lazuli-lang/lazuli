@@ -15,7 +15,7 @@ use lazuli_doctor::DoctorSeverity as SharedSeverity;
 use lazuli_doctor::lzi_hygiene::comment_prose_001;
 use lazuli_doctor::lzi_hygiene::feature_cohesion_002::LoweredFeature;
 use lazuli_doctor::lzi_hygiene::preset::LziHygienePreset;
-use lazuli_doctor::lzi_hygiene::walker::{is_exempt_path, walk_lzi_sources};
+use lazuli_doctor::lzi_hygiene::walker::{is_exempt_path_for_comment_prose, walk_lzi_sources};
 use lazuli_doctor::lzi_hygiene::{
     feature_cohesion_001, feature_cohesion_002, feature_naming_matches_file_001, file_size_001,
 };
@@ -224,17 +224,20 @@ pub(crate) fn comment_prose_diagnostics(
         if !matches!(ext, Some("lzi") | Some("lzx")) {
             continue;
         }
-        // Mirror the `.lzi` walker's exemptions (toplevel app/registry files,
-        // `contracts/`, fixture sub-trees) so PROSE-001 stays quiet on
-        // non-feature source. Compute the path relative to the project root the
-        // same way the walker does.
+        // Mirror the `.lzi` walker's exemptions (`contracts/`, fixture sub-trees,
+        // `crates/`, `workspace.lzi`/`profiles.lzi`) so PROSE-001 stays quiet on
+        // non-feature source — BUT keep scanning the app-manifest toplevels
+        // `app.lzi` / `registry.lzi` (spec 0028 Gap C): the "zero `#` comments"
+        // goal applies to them too, so the orchestrator no longer has to
+        // hand-strip them. Compute the path relative to the project root the same
+        // way the walker does.
         let relative = file.path.strip_prefix(project_root).unwrap_or(&file.path);
         let name = file
             .path
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or_default();
-        if is_exempt_path(relative, name) {
+        if is_exempt_path_for_comment_prose(relative, name) {
             continue;
         }
 
@@ -426,15 +429,45 @@ mod tests {
     #[test]
     fn comment_prose_respects_path_exemptions() {
         let root = Path::new("/proj");
-        // app.lzi (toplevel) + a fixtures/ subtree are exempt — no findings even
-        // with a `#` comment present.
+        // workspace.lzi (toplevel) + a fixtures/ subtree stay exempt — no findings
+        // even with a `#` comment present.
         let files = vec![
-            doctor_file(Path::new("/proj/app.lzi"), "# header\napp Acme\n"),
+            doctor_file(Path::new("/proj/workspace.lzi"), "# header\nworkspace w\n"),
             doctor_file(
                 Path::new("/proj/tests/fixtures/x.lzi"),
                 "# header\nfeature x\n",
             ),
         ];
+        assert!(comment_prose_diagnostics(root, &files, None).is_empty());
+    }
+
+    #[test]
+    fn comment_prose_now_scans_app_and_registry_lzi() {
+        // Spec 0028 Gap C: app.lzi / registry.lzi are NO LONGER exempt from
+        // COMMENT-PROSE — a `#` comment in either fires so "zero comments" is
+        // fully enforced (the orchestrator no longer hand-strips them).
+        let root = Path::new("/proj");
+        let files = vec![
+            doctor_file(Path::new("/proj/app.lzi"), "# header prose\napp Acme\n"),
+            doctor_file(
+                Path::new("/proj/registry.lzi"),
+                "# registry prose\nregistry\n",
+            ),
+        ];
+        let diags = comment_prose_diagnostics(root, &files, None);
+        assert_eq!(diags.len(), 2, "app.lzi + registry.lzi both fire: {diags:?}");
+        assert!(diags.iter().all(|d| d.code == "LZI-COMMENT-PROSE-001"));
+    }
+
+    #[test]
+    fn comment_prose_app_lzi_waiver_still_suppresses() {
+        // The file-level `@doctor.allow(LZI-COMMENT-PROSE-001, ...)` waiver still
+        // silences app.lzi (so a legitimately-commented manifest can opt out).
+        let root = Path::new("/proj");
+        let files = vec![doctor_file(
+            Path::new("/proj/app.lzi"),
+            "@doctor.allow(LZI-COMMENT-PROSE-001, reason: \"manifest header\")\n# header\napp Acme\n",
+        )];
         assert!(comment_prose_diagnostics(root, &files, None).is_empty());
     }
 

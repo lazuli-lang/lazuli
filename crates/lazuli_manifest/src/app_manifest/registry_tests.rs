@@ -278,3 +278,19 @@ registry
     let registry = parse_app_registry(source).expect("registry");
     assert!(registry.secret_rotations.is_empty());
 }
+
+#[test]
+fn accepts_doctor_allow_node_in_registry() {
+    // Spec 0028 Gap B: a `@doctor.allow(...)` waiver node — file-level (before
+    // `registry`) AND as a block child — must parse without disturbing captured
+    // registry content.
+    let source = r#"
+@doctor.allow(LZI-FILE-SIZE-001, reason: "big registry")
+registry
+  @doctor.allow(SOME-RULE-001, reason: "ok")
+  capabilities
+    payment_gateway mercadopago
+"#;
+    let registry = parse_app_registry(source).expect("registry parses with waiver nodes");
+    assert_eq!(registry.capabilities[0].name, "payment_gateway");
+}
