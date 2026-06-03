@@ -287,3 +287,77 @@ fn updated_at_alone_does_not_set_timestamps_true() {
          opt into the timestamps convention — got:\n{out}"
     );
 }
+
+/// GAP-13 — `polymorphic_ref <type_field> <id_field> targets [...]` must
+/// project BOTH columns onto the emitted Go struct. The migration DDL
+/// emits `<type_field> TEXT NOT NULL` + `<id_field> BIGINT NOT NULL`, but
+/// the pair lives on `resource.polymorphic_refs`, not `resource.fields`,
+/// so without an explicit projection the struct omits them. That broke the
+/// row both ways: the read path derives its `SELECT` list from the struct's
+/// `db` tags (columns dropped from every list/lookup), and the write path's
+/// `INSERT ... RETURNING *` hands pgx columns with no destination field
+/// (strict `RowToStructByName` scan failure). The discriminator lowers to a
+/// non-pointer `string`; the id to `lazuli.ID`; both required (NOT NULL),
+/// so bare `db`/`json` tags with no `omitempty`.
+#[test]
+fn polymorphic_ref_projects_type_and_id_columns_onto_struct() {
+    let mut feature = base_feature("attachments");
+    let mut resource = simple_resource(
+        "Attachment",
+        vec![simple_field("status", BuiltinType::Text, true)],
+    );
+    resource.polymorphic_refs = vec![lazuli_ir::PolymorphicRef {
+        type_field: "entity_type".to_owned(),
+        id_field: "entity_id".to_owned(),
+        targets: vec![
+            "Customer".to_owned(),
+            "Supplier".to_owned(),
+            "Job".to_owned(),
+            "Activity".to_owned(),
+        ],
+    }];
+    feature.resources.push(resource);
+
+    let out = emit(&feature).expect("must emit");
+
+    // Struct rows are column-aligned (name / type / tag padded to the widest
+    // row), so assert the load-bearing pieces — field name, Go type, and the
+    // db/json tag — rather than an exact, padding-sensitive line.
+    //
+    // Discriminator column: TEXT NOT NULL → non-pointer `string`.
+    assert!(
+        out.contains("EntityType string"),
+        "polymorphic_ref discriminator must project as a required `string` \
+         field `EntityType` — got:\n{out}"
+    );
+    assert!(
+        out.contains(r#"db:"entity_type" json:"entity_type"`"#),
+        "polymorphic_ref discriminator must carry bare `entity_type` db/json \
+         tags (NOT NULL → no omitempty) — got:\n{out}"
+    );
+    // Id column: BIGINT NOT NULL → `lazuli.ID`, no `*`, no omitempty.
+    // (Field names are column-aligned, so `EntityID` is padded before its
+    // type — match the name and type independently of the padding width.)
+    assert!(
+        out.contains("EntityID") && out.contains("lazuli.ID `db:\"entity_id\""),
+        "polymorphic_ref id must project as a required `lazuli.ID` field \
+         `EntityID` — got:\n{out}"
+    );
+    assert!(
+        out.contains(r#"db:"entity_id"   json:"entity_id"`"#)
+            || out.contains(r#"db:"entity_id" json:"entity_id"`"#),
+        "polymorphic_ref id must carry bare `entity_id` db/json tags \
+         (NOT NULL → no omitempty) — got:\n{out}"
+    );
+    // Neither column is optional → no pointer, no omitempty for the pair.
+    assert!(
+        !out.contains("*string `db:\"entity_type\"")
+            && !out.contains("entity_type,omitempty"),
+        "polymorphic_ref discriminator is NOT NULL — must not be a pointer / \
+         omitempty — got:\n{out}"
+    );
+    assert!(
+        !out.contains("entity_id,omitempty"),
+        "polymorphic_ref id is NOT NULL — must not be omitempty — got:\n{out}"
+    );
+}
