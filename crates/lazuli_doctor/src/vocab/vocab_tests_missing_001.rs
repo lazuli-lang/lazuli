@@ -1,20 +1,44 @@
 //! VOCAB-TESTS-MISSING-001 — feature with resources or commands but no tests.
 //!
 //! Fires when a feature declares at least one `resource` or `command.*` block
-//! but declares zero inline `test` blocks anywhere in the feature.
+//! but carries zero **substantive** inline `tests` blocks anywhere in the
+//! feature.
 //!
-//! The current IR has no feature-level `tests` field.  Test blocks are attached
-//! to commands, rules, workflow/lifecycle transitions, and view constructs, so
-//! this lint treats any of those as evidence that the feature has authored test
-//! vocabulary.
+//! ## What counts as "has tests"
 //!
-//! Planned opt-out:
-//!   `# doctor:allow VOCAB-TESTS-MISSING-001 — reason "..."`
+//! The IR has no feature-level `tests` field. Authored `tests { }` blocks hang
+//! off commands, rules, and workflow/lifecycle transitions, and the analyzer
+//! lowers each one into [`lazuli_ir::TestBlock`] via the shared
+//! `lazuli_analyzer::test_lowering` path. This lint treats a lowered block with
+//! at least one assertion (see [`block_has_substance`]) on ANY of those
+//! constructs as evidence the feature has authored test vocabulary.
 //!
-//! v0 does not parse comments yet; the opt-out walker lands in a follow-up
-//! cell.  v0 also does not implement the planned
-//! feature-touched-in-last-N-commits filter, so downstream callers may suppress
-//! legacy untouched features until that false-positive defense lands.
+//! Critically, this includes the dominant pilot form `allows when <pred>` /
+//! `denies when <pred>`: the typed closed-`Predicate` parser is not yet wired,
+//! so those lines lower to the sanctioned `TestAssertion::Raw` fallback
+//! (non-empty) rather than being dropped. An authored command whose only tests
+//! are `when`-predicate lines therefore satisfies this rule. (This was NOT true
+//! before spec 0012 — command `tests` were hardcoded to `None` and `when` lines
+//! were dropped, which is why both pilots once carried legitimate
+//! `@doctor.allow(VOCAB-TESTS-MISSING-001, ...)` waivers reading "captured as
+//! raw lines and do not lower". Those waivers are now retireable for any feature
+//! that does author inline tests.)
+//!
+//! An empty `tests { }` body (zero assertions) is NOT coverage — see the
+//! theater-promotion note on [`block_has_substance`].
+//!
+//! ## Opt-out
+//!
+//! `@doctor.allow(VOCAB-TESTS-MISSING-001, reason: "...")` (or the legacy
+//! `# doctor:allow VOCAB-TESTS-MISSING-001 — reason "..."` comment) near the
+//! feature suppresses the finding — wired in [`check`] below. Reserve this for
+//! features that genuinely author no inline tests (behavior lives only in
+//! `handlers/*_test.go`); features that DO author inline tests no longer need
+//! it.
+//!
+//! v0 does not implement the planned feature-touched-in-last-N-commits filter,
+//! so downstream callers may suppress legacy untouched features until that
+//! false-positive defense lands.
 //!
 //! Severity: `warning` (strict-profile), `warning` (production-profile).
 //! Reference: docs/next-checklist.md §VOCAB-TESTS-MISSING-001

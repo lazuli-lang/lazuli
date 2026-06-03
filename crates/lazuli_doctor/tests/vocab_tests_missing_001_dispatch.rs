@@ -172,3 +172,100 @@ feature billing
         "the command's `allows as @role.admin` test must credit the pair"
     );
 }
+
+// ── Pilot shape: `when`-predicate-only command tests silence the rule ─────────────
+//
+// The dominant authored inline-test form in BOTH pilots is the
+// `allows when <pred>` / `denies when <pred>` pair (pauta: 99 of each;
+// hostpoint: 7+8). Their typed closed-`Predicate` parser is not yet
+// wired, so they lower to the sanctioned `TestAssertion::Raw` fallback
+// (non-empty) instead of being dropped — see
+// `lazuli_analyzer::test_lowering`. This is the exact pilot shape that
+// the legitimate `@doctor.allow(VOCAB-TESTS-MISSING-001, ...)` waivers
+// were written for ("Command `tests` blocks are captured as raw lines
+// and do not lower to TestBlock assertions"); those waivers are now
+// retireable. This test locks the lowering→recognition contract end-to-
+// end (parse → lower → check) so the waiver class cannot silently
+// re-open.
+
+#[test]
+fn feature_with_when_only_command_tests_is_silent() {
+    // Mirrors `agency.lzi` / `customer_management.lzi`: the command's
+    // only coverage is `allows when` / `denies when` predicate lines.
+    let source = r#"
+feature agency
+  resource Agency
+    legal_name: Text required
+  command create_agency
+    input
+      legal_name: Text required
+    policy @policy.author
+    creates Agency
+      legal_name = input.legal_name
+    tests
+      allows when input.legal_name == "Acme Ads Ltda"
+      denies when input.legal_name == ""
+"#;
+    let feature = lower(source);
+    let cmd = feature
+        .commands
+        .iter()
+        .find(|c| c.name == "create_agency")
+        .expect("create_agency command");
+    let block = cmd
+        .tests
+        .as_ref()
+        .expect("`when`-predicate command tests lower to a substantive TestBlock (Raw fallback)");
+    assert_eq!(
+        block.assertions,
+        vec![
+            lazuli_ir::TestAssertion::Raw {
+                line: "allows when input.legal_name == \"Acme Ads Ltda\"".to_owned()
+            },
+            lazuli_ir::TestAssertion::Raw {
+                line: "denies when input.legal_name == \"\"".to_owned()
+            },
+        ],
+        "authored `when` lines must lower to non-empty Raw assertions, not be dropped"
+    );
+    // End-to-end: the rule sees the lowered block and stays silent. A
+    // guaranteed-nonexistent path keeps the `# doctor:allow` escape hatch
+    // from masking the result — the silence is from real lowering.
+    let findings = vocab_tests_missing_001::check(
+        &feature,
+        Path::new("definitely_nonexistent_when_only_fixture.lzi"),
+    );
+    assert!(
+        findings.is_empty(),
+        "a feature whose only inline tests are `when`-predicate lines must NOT fire \
+         VOCAB-TESTS-MISSING-001 (the pilot waiver class is retireable): {findings:?}"
+    );
+}
+
+#[test]
+fn feature_with_no_tests_still_fires() {
+    // Negative control for the gate: a feature with a resource + command
+    // but ZERO inline `tests` blocks still fires. This is the
+    // `account.lzi` / `supplier.lzi` shape whose waivers must stay.
+    let source = r#"
+feature supplier
+  resource Supplier
+    name: Text required
+  command create_supplier
+    input
+      name: Text required
+    policy @policy.author
+    creates Supplier
+      name = input.name
+"#;
+    let findings = vocab_tests_missing_001::check(
+        &lower(source),
+        Path::new("definitely_nonexistent_no_tests_fixture.lzi"),
+    );
+    assert_eq!(
+        findings.len(),
+        1,
+        "a feature with subjects but no inline tests must still fire: {findings:?}"
+    );
+    assert_eq!(findings[0].feature, "supplier");
+}
