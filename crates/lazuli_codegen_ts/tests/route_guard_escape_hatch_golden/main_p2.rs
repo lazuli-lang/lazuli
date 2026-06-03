@@ -192,3 +192,111 @@ fn roundtrip_canonical_demo_emits_three_chained_slots() {
     assert!(out.contains("__fieldRow0"), "field gate missing");
     assert!(out.contains("__forbidLcState_host"), "forbid-with-only-when missing");
 }
+
+// ---------------------------------------------------------------------
+// router-w4 — lifecycle-route helper DEFINITION ⇄ IMPORT casing parity
+//
+// Regression for the TS2724 break on every fresh `generate ts`: the
+// helper DEFINITION emitter fed the verbatim PascalCase resource name
+// (`Host`) into `lower_camel` and produced `HostLifecycleRoute`, while
+// the routes-file IMPORT side snake-cased first and produced
+// `hostLifecycleRoute`. The two emit sites disagreed on the SAME
+// symbol, so the routes file imported a name the SDK never exported.
+// ---------------------------------------------------------------------
+
+/// Extract the single import specifier matching `<resource>LifecycleRoute`
+/// (any casing) out of the generated routes file's `host.gen.js` import.
+fn imported_lifecycle_helper_name(routes_src: &str) -> String {
+    for line in routes_src.lines() {
+        if !(line.starts_with("import") && line.contains("host.gen.js")) {
+            continue;
+        }
+        for tok in line
+            .trim_start_matches("import {")
+            .split(['{', '}', ',', ' '])
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            if tok.to_ascii_lowercase().ends_with("lifecycleroute") {
+                return tok.to_owned();
+            }
+        }
+    }
+    panic!("no `*LifecycleRoute` import found in routes file:\n---\n{routes_src}\n---");
+}
+
+/// Extract the single `export function <name>(...)` helper name whose
+/// identifier ends in `LifecycleRoute` from the DEFINITION emitter
+/// output.
+fn defined_lifecycle_helper_name(helpers_src: &str) -> String {
+    for line in helpers_src.lines() {
+        let Some(rest) = line.trim_start().strip_prefix("export function ") else {
+            continue;
+        };
+        let Some((name, _)) = rest.split_once('(') else {
+            continue;
+        };
+        if name.to_ascii_lowercase().ends_with("lifecycleroute") {
+            return name.to_owned();
+        }
+    }
+    panic!(
+        "no `export function *LifecycleRoute` found in helper defs:\n---\n{helpers_src}\n---"
+    );
+}
+
+#[test]
+fn lifecycle_route_helper_definition_name_matches_its_import_name() {
+    let route = route_from_json(serde_json::json!({
+        "name": "host_basic_details",
+        "path": "/onboarding/host/basic-details",
+        "to": "host.view.host_basic_details",
+        "surface": "host web",
+        "audience": "host",
+        "guard": {
+            "policy": ["@policy.authenticated"],
+            "on_unauthenticated": "/sign-in",
+            "requires_lifecycle": {
+                "resource": "Host",
+                "state": "basic_details_pending"
+            }
+        }
+    }));
+    let feature = host_feature();
+
+    // IMPORT side — the routes file references + imports the helper.
+    let routes_src = render(&[route], std::slice::from_ref(&feature));
+    let imported = imported_lifecycle_helper_name(&routes_src);
+
+    // DEFINITION side — the per-feature SDK appends the helper export.
+    let helpers_src = emit_lifecycle_route_helpers_ts(&feature)
+        .expect("host feature authored lifecycle_routes → helper emitted");
+    let defined = defined_lifecycle_helper_name(&helpers_src);
+
+    // THE invariant: the routes file imports exactly the symbol the SDK
+    // defines, byte-for-byte. A mismatch is the TS2724 regression.
+    assert_eq!(
+        defined, imported,
+        "lifecycle-route helper DEFINITION (`{defined}`) and IMPORT \
+         (`{imported}`) disagree on casing → `generate ts` emits a name \
+         the routes file can never import (TS2724)",
+    );
+
+    // And both equal the canonical route-helper name: camelCase
+    // (leading-lowercase), matching the sibling `lookupMyHost` export's
+    // convention — NOT the PascalCase `HostLifecycleRoute` the buggy
+    // emitter produced.
+    assert_eq!(
+        defined,
+        lifecycle_route_helper_name("Host"),
+        "helper name diverged from the canonical route-helper convention",
+    );
+    assert_eq!(
+        defined, "hostLifecycleRoute",
+        "expected camelCase helper name matching `lookupMy<Resource>`",
+    );
+    assert!(
+        defined.starts_with("host") && !defined.starts_with("Host"),
+        "route-helper convention is camelCase (leading lowercase), got `{defined}`",
+    );
+}

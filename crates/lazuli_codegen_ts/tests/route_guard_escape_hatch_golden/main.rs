@@ -18,8 +18,10 @@
 //! shapes (same approach as `lifecycle_gate_golden.rs`) so the test
 //! stays decoupled from parser surface evolution.
 
-use lazuli_codegen_ts::GeneratedFile;
 use lazuli_codegen_ts::routes::{RoutesTarget, emit_routes_artifacts};
+use lazuli_codegen_ts::{
+    GeneratedFile, emit_lifecycle_route_helpers_ts, lifecycle_route_helper_name,
+};
 use lazuli_ir::{
     AppRoute, Experience, Feature, LifecycleRouteArm, LifecycleRoutes, Platform, PlatformSurface,
 };
