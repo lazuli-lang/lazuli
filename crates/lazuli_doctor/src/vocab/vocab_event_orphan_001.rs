@@ -75,13 +75,46 @@ impl Finding {
 /// let _ = check(&feature, Path::new("billing.lzi"));
 /// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
-    let emitted: HashSet<&str> = feature
+    // EVENT_GROUP-HOIST — `event_group` variants are now hoisted into
+    // `Feature.events`, so this rule sees them like any standalone event.
+    // Two consequences the producer set has to absorb:
+    //
+    //  1. Group events are very often produced by a `webhook` /
+    //     `notification` / `poller` rather than a `command`/`job` (the
+    //     hostpoint MercadoPago `charge_*` family is emitted from the
+    //     `mp_payment_event` webhook), so the set spans every `emits`
+    //     surface or the hoist would manufacture orphan false positives.
+    //
+    //  2. A producer may emit either the bare variant name
+    //     (`emits mp_status_received`) or the group-prefixed canonical
+    //     name (`emits charge_mp_status_received`) — pilots mix both, and
+    //     the hoisted event carries the prefixed name. So for every emit
+    //     we register the bare last segment AND its expansion under each
+    //     group pattern prefix, matching how VOCAB-EVENT-PAYLOAD-001
+    //     resolves the same references.
+    let group_prefixes: Vec<&str> = feature
+        .event_groups
+        .iter()
+        .map(|g| g.pattern.strip_suffix('*').unwrap_or(g.pattern.as_str()))
+        .collect();
+    let mut emitted: HashSet<String> = HashSet::new();
+    for event_ref in feature
         .commands
         .iter()
         .flat_map(|cmd| cmd.emits.iter())
         .chain(feature.jobs.iter().flat_map(|job| job.emits.iter()))
-        .map(|event_ref| event_ref.rsplit('.').next().unwrap_or(event_ref.as_str()))
-        .collect();
+        .chain(feature.webhooks.iter().flat_map(|wh| wh.emits.iter()))
+        .chain(feature.notifications.iter().flat_map(|n| n.emits.iter()))
+        .chain(feature.pollers.iter().flat_map(|p| p.emits.iter()))
+    {
+        let local = event_ref.rsplit('.').next().unwrap_or(event_ref.as_str());
+        emitted.insert(local.to_owned());
+        for prefix in &group_prefixes {
+            if !prefix.is_empty() && !local.starts_with(prefix) {
+                emitted.insert(format!("{prefix}{local}"));
+            }
+        }
+    }
 
     feature
         .events
@@ -109,8 +142,8 @@ mod tests {
 
     use lazuli_ir::{
         BuiltinType, Command, CommandEffect, CommandInput, CommandKind, CreateEffect, Defaults,
-        Event, EventField, EventKind, Feature, OutboxMode, Policies, PolicyRef, QualifiedName,
-        TypeRef,
+        Event, EventField, EventGroup, EventKind, EventVariant, EventVariantKind, Feature,
+        OutboxMode, PathRef, Policies, PolicyRef, QualifiedName, TypeRef, Webhook,
     };
 
     fn qn(name: &str) -> QualifiedName {
@@ -315,5 +348,98 @@ mod tests {
             check(&feature, Path::new("f.lzi")).is_empty(),
             "qualified same-feature event refs resolve by local event name"
         );
+    }
+
+    // ── EVENT_GROUP-HOIST producer-set + name-resolution coverage ─────────────
+
+    fn mk_webhook(emits: Vec<&str>) -> Webhook {
+        Webhook {
+            name: "wh".to_owned(),
+            route: "/wh".to_owned(),
+            verify: PathRef::authored(String::new()),
+            structured_verify: None,
+            tenant_from: None,
+            scope_global: None,
+            idempotency: None,
+            policy: None,
+            policy_expr: None,
+            policy_when_denied: None,
+            handler: PathRef::authored("./wh.go"),
+            returns: None,
+            emits: emits.iter().map(|s| s.to_string()).collect(),
+            emit_predicates: vec![],
+            payload_from: None,
+            replay: None,
+            dlq: None,
+            retry: None,
+            previous_names: vec![],
+            span_ref: None,
+        }
+    }
+
+    fn mk_group(pattern: &str, variant_short_names: &[&str]) -> EventGroup {
+        EventGroup {
+            pattern: pattern.to_owned(),
+            on_resource: Some("Charge".to_owned()),
+            raw_payload: vec![],
+            raw_audit: None,
+            events: variant_short_names.iter().map(|s| s.to_string()).collect(),
+            events_outbox: vec![],
+            variants: variant_short_names
+                .iter()
+                .map(|s| EventVariant {
+                    name: (*s).to_owned(),
+                    kind: EventVariantKind::Committed,
+                    outbox: OutboxMode::None,
+                    fields: vec![],
+                    span_ref: None,
+                })
+                .collect(),
+            span_ref: None,
+        }
+    }
+
+    /// Hoisted group event whose only producer is a `webhook` (the
+    /// hostpoint MercadoPago shape). Without spanning the webhook
+    /// `emits` surface the hoist would manufacture an orphan false
+    /// positive.
+    #[test]
+    fn webhook_emit_satisfies_hoisted_group_event() {
+        let mut feature = mk_feature(vec![], vec![mk_event("charge_confirmed")]);
+        feature.event_groups = vec![mk_group("charge_*", &["confirmed"])];
+        feature.webhooks = vec![mk_webhook(vec!["charge_confirmed"])];
+        assert!(
+            check(&feature, Path::new("f.lzi")).is_empty(),
+            "a webhook emitting the hoisted group event must satisfy the orphan rule"
+        );
+    }
+
+    /// A webhook may emit the BARE variant name (`mp_status_received`)
+    /// while the hoisted event carries the group-prefixed canonical name
+    /// (`charge_mp_status_received`). The producer set must expand the
+    /// bare emit under the group prefix so the two reconcile.
+    #[test]
+    fn bare_webhook_emit_resolves_prefixed_hoisted_event() {
+        let mut feature = mk_feature(vec![], vec![mk_event("charge_mp_status_received")]);
+        feature.event_groups = vec![mk_group("charge_*", &["mp_status_received"])];
+        // Webhook authored the bare short name (pilots mix both spellings).
+        feature.webhooks = vec![mk_webhook(vec!["mp_status_received"])];
+        assert!(
+            check(&feature, Path::new("f.lzi")).is_empty(),
+            "a bare webhook emit must reconcile with the prefixed hoisted event name"
+        );
+    }
+
+    /// A hoisted group event that genuinely has NO producer anywhere
+    /// must still fire — the hoist surfaces real dead-code, it does not
+    /// blanket-silence the rule.
+    #[test]
+    fn truly_unemitted_hoisted_group_event_still_fires() {
+        let mut feature = mk_feature(vec![], vec![mk_event("charge_canceled")]);
+        feature.event_groups = vec![mk_group("charge_*", &["canceled"])];
+        // No command/job/webhook/notification/poller emits it.
+        let findings = check(&feature, Path::new("f.lzi"));
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].event_name, "charge_canceled");
     }
 }
