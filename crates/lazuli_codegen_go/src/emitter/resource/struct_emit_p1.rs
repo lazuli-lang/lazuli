@@ -103,6 +103,42 @@ pub(super) fn emit_resource(
         });
     }
 
+    // GAP-13 — `polymorphic_ref <type_field> <id_field> targets [...]`
+    // columns. The migration DDL (`migration_ddl::constraint::
+    // polymorphic_ref_columns`) emits the pair as
+    //   `<type_field> TEXT NOT NULL CHECK (<type_field> IN (...))`
+    //   `<id_field>   BIGINT NOT NULL`
+    // but the pair lives on `resource.polymorphic_refs`, NOT
+    // `resource.fields`, so the field loop above never sees it. Without
+    // these struct rows the discriminated FK can't ride the row: the read
+    // path (`readProjection`) derives its `SELECT` list from the row
+    // struct's `db` tags, so the columns would be dropped from every
+    // `query.list`/`query.lookup`; and the write path's
+    // `INSERT ... RETURNING *` would hand pgx two columns
+    // (`pgx.RowToStructByName`, strict) with no destination field, failing
+    // the scan. Both columns are `NOT NULL` in the DDL → emit them as
+    // non-pointer required fields (bare `db`/`json` tag, no `omitempty`),
+    // matching how the `event_group` payloads already type the pair
+    // (`entity_type: Text`, `entity_id: ID`).
+    for pref in &resource.polymorphic_refs {
+        tagged.push(TaggedField {
+            name: pascal_case(&pref.type_field),
+            go_type: "string".to_owned(),
+            db_col: pref.type_field.clone(),
+            json_suffix: pref.type_field.clone(),
+            validate: None,
+            comment: None,
+        });
+        tagged.push(TaggedField {
+            name: pascal_case(&pref.id_field),
+            go_type: "lazuli.ID".to_owned(),
+            db_col: pref.id_field.clone(),
+            json_suffix: pref.id_field.clone(),
+            validate: None,
+            comment: None,
+        });
+    }
+
     // MONEY-1 §3.2 (v0.5) — per-field `<field>_currency` Go fields
     // mirror the per-field DDL columns emitted by `migration_ddl.rs`.
     // Authors can suppress the auto-emit by declaring an explicit

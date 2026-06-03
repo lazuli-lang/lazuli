@@ -95,6 +95,19 @@ pub fn current_schema_from_ir(resource: &Resource) -> ResourceSchema {
         columns.push(Column::new(*name, sql_type, true));
     }
 
+    // GAP-13 — `polymorphic_ref` columns. The `create_table` DDL emits
+    // `<type_field> TEXT NOT NULL` + `<id_field> BIGINT NOT NULL` (via
+    // `constraint::polymorphic_ref_columns`); the pair lives on
+    // `resource.polymorphic_refs`, not `resource.fields`. Mirror it here so a
+    // re-`generate` against an unchanged spec produces no spurious
+    // ALTER-add plan for these columns. The CHECK on the discriminator is a
+    // constraint, not a column type, so it does not participate in the
+    // column-level diff.
+    for pref in &resource.polymorphic_refs {
+        columns.push(Column::new(&pref.type_field, "TEXT", false));
+        columns.push(Column::new(&pref.id_field, "BIGINT", false));
+    }
+
     ResourceSchema { columns }
 }
 

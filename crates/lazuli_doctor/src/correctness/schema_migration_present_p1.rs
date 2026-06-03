@@ -352,6 +352,19 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
         }
     }
 
+    // GAP-13 — `polymorphic_ref <type_field> <id_field> targets [...]`
+    // emits a discriminator column (`<type_field> TEXT NOT NULL CHECK ...`)
+    // and an id column (`<id_field> BIGINT NOT NULL`) to the migration via
+    // `migration_ddl::constraint::polymorphic_ref_columns`. The pair lives
+    // on `resource.polymorphic_refs`, NOT `resource.fields`, so without this
+    // it was flagged as drift ("migration-only columns") — the false-positive
+    // the attachments `.lzi` had to waive. Mirror the emitter here so the
+    // codegen-projected pair is recognised as expected, not drift.
+    for pref in &resource.polymorphic_refs {
+        cols.insert(pref.type_field.clone());
+        cols.insert(pref.id_field.clone());
+    }
+
     cols
 }
 

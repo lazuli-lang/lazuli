@@ -336,6 +336,16 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
         }
     }
 
+    // GAP-13 — `polymorphic_ref <type_field> <id_field> targets [...]`
+    // emits its discriminator + id columns to the migration (`migration_ddl::
+    // constraint::polymorphic_ref_columns`) but the pair lives on
+    // `resource.polymorphic_refs`, not `resource.fields`. Include both names
+    // so the deployed-history diff doesn't treat them as migration-only.
+    for pref in &resource.polymorphic_refs {
+        cols.insert(pref.type_field.clone());
+        cols.insert(pref.id_field.clone());
+    }
+
     cols
 }
 
