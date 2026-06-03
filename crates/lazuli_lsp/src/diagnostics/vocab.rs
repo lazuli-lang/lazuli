@@ -135,8 +135,15 @@ pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
 
     for (line_index, line) in source.lines().enumerate() {
         // skip comment lines — an `@info.x` in a comment is documentation,
-        // not an IR ref.
-        if line.trim_start().starts_with('#') {
+        // not an IR ref. Likewise skip the `@doctor.allow(...)` waiver node: its
+        // CODE arg (e.g. `@info.record_column_jsonb`) and reason prose are opaque
+        // diagnostic text, not IR namespace references (spec 0028 Gap A). The
+        // `doctor` head itself is allowed; this also covers an `@<ns>` token
+        // carried inside the code/reason.
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('#')
+            || lazuli_syntax::doctor_allow::line_is_doctor_allow_node(trimmed)
+        {
             continue;
         }
         for namespace in namespace_references(line) {
@@ -163,7 +170,13 @@ pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
 pub(crate) fn scalar_alias_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for (line_index, line) in source.lines().enumerate() {
-        if line.trim_start().starts_with('#') {
+        let trimmed = line.trim_start();
+        // A scalar alias appearing inside a waiver reason (e.g. a code like
+        // `...: Int ...` quoted in prose) is not an authored type position
+        // (spec 0028 Gap A).
+        if trimmed.starts_with('#')
+            || lazuli_syntax::doctor_allow::line_is_doctor_allow_node(trimmed)
+        {
             continue;
         }
         if let Some(alias) = type_position_alias(line) {
@@ -308,6 +321,25 @@ mod alias_tests {
         assert!(
             !d.iter().any(is_catalog),
             "@doctor.allow should not emit a namespace-catalog warning, got: {:?}",
+            d.iter().map(|x| &x.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_allow_node_with_at_info_code_arg_emits_no_namespace_catalog_warning() {
+        // Spec 0028 Gap A: a CODE arg like `@info.record_column_jsonb` (namespace
+        // `info` is NOT a reference namespace) must NOT self-inflict a
+        // namespace-catalog warning when carried inside the waiver node.
+        use tower_lsp::lsp_types::NumberOrString;
+        let src =
+            "@doctor.allow(@info.record_column_jsonb, reason: \"jsonb column ok\")\nfeature billing\n";
+        let d = namespace_reference_diagnostics(src);
+        let is_catalog = |diag: &Diagnostic| {
+            matches!(&diag.code, Some(NumberOrString::String(s)) if s == "namespace-catalog")
+        };
+        assert!(
+            !d.iter().any(is_catalog),
+            "an @info.* CODE arg inside @doctor.allow must not warn, got: {:?}",
             d.iter().map(|x| &x.message).collect::<Vec<_>>()
         );
     }

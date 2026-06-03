@@ -79,7 +79,13 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
 
     for (offset, line) in lines.iter().enumerate().skip(start + 1) {
         let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
+        // Spec 0028 Gap B: a `@doctor.allow(...)` waiver node is valid anywhere a
+        // `# doctor:allow` comment used to be — skip it (the module loader
+        // captures the waiver separately).
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || lazuli_syntax::doctor_allow::is_node_line(trimmed)
+        {
             continue;
         }
         if leading_spaces(line) == 0 {

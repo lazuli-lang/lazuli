@@ -170,6 +170,35 @@ pub fn is_exempt_path(relative_path: &Path, file_name: &str) -> bool {
     false
 }
 
+/// Like [`is_exempt_path`], but for `LZI-COMMENT-PROSE-001` (spec 0029 + spec
+/// 0028 Gap C): the app-manifest toplevels `app.lzi` / `registry.lzi` are NOT
+/// exempt from comment-hygiene. They declare `app` / `registry` rather than
+/// `feature` (so the feature-shaped rules skip them via [`is_exempt_path`]), but
+/// the "drive `.lzi` comments to ZERO" goal applies to them just the same — the
+/// orchestrator otherwise has to hand-strip their `#` comments. All OTHER
+/// exemptions (fixtures, `contracts/`, `crates/`, `workspace.lzi`/`profiles.lzi`)
+/// are preserved.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::lzi_hygiene::walker::is_exempt_path_for_comment_prose;
+/// use std::path::Path;
+///
+/// // app.lzi / registry.lzi ARE scanned for comment prose.
+/// assert!(!is_exempt_path_for_comment_prose(Path::new("app.lzi"), "app.lzi"));
+/// assert!(!is_exempt_path_for_comment_prose(Path::new("registry.lzi"), "registry.lzi"));
+/// // Other toplevels + fixtures stay exempt.
+/// assert!(is_exempt_path_for_comment_prose(Path::new("workspace.lzi"), "workspace.lzi"));
+/// assert!(is_exempt_path_for_comment_prose(Path::new("contracts/billing.lzi"), "billing.lzi"));
+/// ```
+pub fn is_exempt_path_for_comment_prose(relative_path: &Path, file_name: &str) -> bool {
+    if matches!(file_name, "app.lzi" | "registry.lzi") {
+        return false;
+    }
+    is_exempt_path(relative_path, file_name)
+}
+
 /// `true` when the source's first non-blank line is a `# @generated`
 /// or `# Code generated` marker. Mirrors the analogous carve-out in
 /// `crate::internal_hygiene::file_size_001::is_generated_rust`.

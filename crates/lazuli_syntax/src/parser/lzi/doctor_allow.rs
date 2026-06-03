@@ -83,6 +83,74 @@ pub fn is_node_line(trimmed: &str) -> bool {
     after.trim_start().starts_with('(')
 }
 
+/// True when `line` (leading whitespace allowed) is a node-form
+/// `@doctor.allow(...)` waiver. Convenience over [`is_node_line`] for line-based
+/// scanners that hold the raw (untrimmed) source line.
+///
+/// This is the shared skip primitive (spec 0028, Gap A): naive line-based
+/// diagnostic rules that only skip `#` comments must ALSO skip this line, since
+/// a waiver's opaque `reason` prose / diagnostic `code` is not authored content
+/// and must never be keyword/namespace/token-scanned by unrelated rules.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_syntax::doctor_allow::line_is_doctor_allow_node;
+/// assert!(line_is_doctor_allow_node("  @doctor.allow(X-1, reason: \"event. payload\")"));
+/// assert!(!line_is_doctor_allow_node("# doctor:allow X-1"));
+/// assert!(!line_is_doctor_allow_node("  payload = event"));
+/// ```
+pub fn line_is_doctor_allow_node(line: &str) -> bool {
+    is_node_line(line.trim_start())
+}
+
+/// Return `line` with any node-form `@doctor.allow(...)` quoted-`reason` payload
+/// blanked out (replaced by spaces of equal length, so byte offsets / columns
+/// are preserved) — for scanners that legitimately scan the rest of a line but
+/// must not peer inside the opaque reason prose. When `line` is not a node line,
+/// or carries no quoted reason, the input is returned unchanged.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_syntax::doctor_allow::strip_doctor_allow_reason;
+/// let line = "@doctor.allow(X-1, reason: \"see @cap.File\")";
+/// let masked = strip_doctor_allow_reason(line);
+/// assert!(!masked.contains("@cap.File"));
+/// // length + the code head are preserved; only the reason payload is blanked.
+/// assert_eq!(masked.len(), line.len());
+/// assert!(masked.contains("@doctor.allow(X-1, reason:"));
+/// ```
+pub fn strip_doctor_allow_reason(line: &str) -> std::borrow::Cow<'_, str> {
+    if !is_node_line(line.trim_start()) {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    // Blank the bytes strictly between the two quotes of the FIRST `"..."` that
+    // follows a `reason` keyword. Equal-length space fill keeps every later
+    // column index valid for the caller's range math.
+    let Some(reason_pos) = line.find("reason") else {
+        return std::borrow::Cow::Borrowed(line);
+    };
+    let after = &line[reason_pos..];
+    let Some(open_rel) = after.find('"') else {
+        return std::borrow::Cow::Borrowed(line);
+    };
+    let open = reason_pos + open_rel;
+    let inner = &line[open + 1..];
+    let Some(close_rel) = inner.find('"') else {
+        return std::borrow::Cow::Borrowed(line);
+    };
+    let close = open + 1 + close_rel;
+    if close <= open + 1 {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    let mut out = String::with_capacity(line.len());
+    out.push_str(&line[..open + 1]);
+    out.extend(std::iter::repeat(' ').take(close - (open + 1)));
+    out.push_str(&line[close..]);
+    std::borrow::Cow::Owned(out)
+}
+
 /// Lightweight, infallible recognizer used by the doctor string-scanner and the
 /// codemod: extract `(code, reason)` from a node-form waiver line. Returns
 /// `None` when the line is not a well-formed `@doctor.allow(<CODE>, ...)`.
@@ -531,6 +599,38 @@ mod tests {
     fn capture_malformed_node_is_error() {
         let src = "@doctor.allow(\nfeature x\n";
         assert!(capture_doctor_allows(src).is_err());
+    }
+
+    #[test]
+    fn line_is_doctor_allow_node_handles_untrimmed() {
+        assert!(line_is_doctor_allow_node("@doctor.allow(X-1)"));
+        assert!(line_is_doctor_allow_node(
+            "    @doctor.allow(X-1, reason: \"event. discriminator @cap.File[]\")"
+        ));
+        assert!(!line_is_doctor_allow_node("# doctor:allow X-1"));
+        assert!(!line_is_doctor_allow_node("  payload = event"));
+        assert!(!line_is_doctor_allow_node(""));
+    }
+
+    #[test]
+    fn strip_reason_blanks_payload_preserving_length() {
+        let line = "@doctor.allow(X-1, reason: \"see @cap.File and event.foo\")";
+        let masked = strip_doctor_allow_reason(line);
+        assert_eq!(masked.len(), line.len(), "length must be preserved");
+        assert!(!masked.contains("@cap.File"));
+        assert!(!masked.contains("event."));
+        // The code head + the `reason: "` opener survive; only the payload blanks.
+        assert!(masked.contains("@doctor.allow(X-1, reason:"));
+        assert!(masked.ends_with("\")"));
+    }
+
+    #[test]
+    fn strip_reason_noop_on_non_node_and_no_reason() {
+        assert_eq!(strip_doctor_allow_reason("feature a"), "feature a");
+        assert_eq!(
+            strip_doctor_allow_reason("@doctor.allow(X-1)"),
+            "@doctor.allow(X-1)"
+        );
     }
 
     #[test]

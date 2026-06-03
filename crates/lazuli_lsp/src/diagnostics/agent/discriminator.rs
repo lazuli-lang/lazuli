@@ -48,6 +48,12 @@ pub(crate) fn agent_discriminator_diagnostics(source: &str) -> Vec<Diagnostic> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
+        // The `@doctor.allow(...)` waiver node is not authored field source — a
+        // reason mentioning the word `discriminator` is opaque prose, never a
+        // misplaced marker (spec 0028 Gap A).
+        if lazuli_syntax::doctor_allow::line_is_doctor_allow_node(trimmed) {
+            continue;
+        }
         // `output discriminator <Enum>` is the agent-side form; not a
         // misuse, skip.
         if trimmed.starts_with("output discriminator ") {
@@ -84,4 +90,30 @@ pub(crate) fn agent_discriminator_diagnostics(source: &str) -> Vec<Diagnostic> {
 pub(crate) fn contains_token(line: &str, token: &str) -> bool {
     line.split(|c: char| !(c == '_' || c.is_ascii_alphanumeric()))
         .any(|word| word == token)
+}
+
+#[cfg(test)]
+mod doctor_allow_gap_a_tests {
+    use super::*;
+
+    #[test]
+    fn doctor_allow_reason_with_discriminator_word_does_not_false_fire() {
+        // Spec 0028 Gap A: the word `discriminator` in a waiver reason is opaque
+        // prose — it must NOT raise the field-marker-misuse ERROR.
+        let src = "@doctor.allow(SOME-RULE-001, reason: \"discriminator: not a marker here\")\nfeature x\n";
+        assert!(
+            agent_discriminator_diagnostics(src).is_empty(),
+            "node-line reason must not produce a discriminator finding"
+        );
+    }
+
+    #[test]
+    fn genuine_misplaced_discriminator_still_fires() {
+        // A real `<name>: <type> discriminator` outside a record still errors.
+        let src = "agent triage\n  input\n    kind: Text discriminator\n";
+        assert!(
+            !agent_discriminator_diagnostics(src).is_empty(),
+            "a genuine misplaced discriminator marker must still fire"
+        );
+    }
 }

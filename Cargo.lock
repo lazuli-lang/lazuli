@@ -775,6 +775,7 @@ version = "0.1.0"
 dependencies = [
  "lazuli_doctor_config",
  "lazuli_ir",
+ "lazuli_syntax",
  "serde",
  "serde_json",
  "tempfile",
