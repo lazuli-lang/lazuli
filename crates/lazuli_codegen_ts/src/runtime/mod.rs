@@ -33,7 +33,7 @@ mod resource;
 #[cfg(test)]
 mod tests;
 
-pub use naming::lower_camel_export;
+pub use naming::{lifecycle_route_helper_name, lower_camel_export};
 
 use lazuli_codegen_spec::RuntimeFeature;
 use lazuli_ir as ir;
@@ -126,7 +126,13 @@ pub fn emit_lifecycle_route_helpers_ts(feature: &ir::Feature) -> Option<String> 
     s.push_str("// router-w4 — lifecycle_routes helpers. One function per\n");
     s.push_str("// resource that authored a `lifecycle_routes` block.\n");
     for resource in resources {
-        let helper = lower_camel_export(&format!("{}_lifecycle_route", resource.name));
+        // Canonical helper name (snake_case the PascalCase resource name
+        // FIRST, then camelCase) — must match the route-file import side
+        // in `routes::resolve`. Feeding the verbatim PascalCase name into
+        // `lower_camel` preserved the leading segment and emitted
+        // `HostLifecycleRoute` while the import expected `hostLifecycleRoute`
+        // → 2× TS2724 on every fresh `generate ts`.
+        let helper = lifecycle_route_helper_name(&resource.name);
         // Filter at line 120 guarantees lifecycle_routes is Some.
         let Some(table) = resource.lifecycle_routes.as_ref() else {
             continue;

@@ -72,6 +72,56 @@ pub(super) fn pascal_case(s: &str) -> String {
     out
 }
 
+/// Convert a resource name (PascalCase in the IR, e.g. `Host`,
+/// `IntermediationTermsAcceptance`) into snake_case (`host`,
+/// `intermediation_terms_acceptance`). Used as the normalising step
+/// before composing the `lookup_my_<snake>` query name and the
+/// `<snake>_lifecycle_route` helper export. Mirrors the route
+/// resolver's own snake-casing so the helper DEFINITION and IMPORT
+/// sides cannot drift.
+pub(super) fn snake_case(s: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.extend(c.to_lowercase());
+    }
+    out
+}
+
+/// Canonical camelCase export name for a resource's `router-w4`
+/// lifecycle-route helper (`Host` → `hostLifecycleRoute`).
+///
+/// SINGLE SOURCE OF TRUTH for both emit sites: the helper DEFINITION
+/// (`runtime::emit_lifecycle_route_helpers_ts`) and the route-file
+/// IMPORT/reference (`routes::resolve::resolve_lifecycle_emit` +
+/// `resolve_lifecycle_in_emit`) both call this. Previously the
+/// definition side fed the verbatim PascalCase resource name into
+/// `lower_camel` (whose leading segment is preserved as-is), yielding
+/// `HostLifecycleRoute`, while the import side snake-cased first and
+/// produced `hostLifecycleRoute` — so a fresh `generate ts` emitted a
+/// definition the routes file could never import (2× TS2724). The
+/// snake_case normalisation here is the join point that keeps them
+/// identical and matches the route-helper naming convention used by
+/// the sibling `lookupMy<Resource>` exports.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::lifecycle_route_helper_name;
+/// assert_eq!(lifecycle_route_helper_name("Host"), "hostLifecycleRoute");
+/// assert_eq!(
+///     lifecycle_route_helper_name("IntermediationTermsAcceptance"),
+///     "intermediationTermsAcceptanceLifecycleRoute"
+/// );
+/// // Already-lowercase resource names normalise to the same result.
+/// assert_eq!(lifecycle_route_helper_name("host"), "hostLifecycleRoute");
+/// ```
+pub fn lifecycle_route_helper_name(resource_name: &str) -> String {
+    lower_camel(&format!("{}_lifecycle_route", snake_case(resource_name)))
+}
+
 pub(super) fn lower_camel(s: &str) -> String {
     // Faithful port of `snakeToCamelKey` (case-mapper.ts): the only
     // transform applied to the verbatim Go json tag is collapsing

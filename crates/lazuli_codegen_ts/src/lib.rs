@@ -46,7 +46,10 @@ pub use cap_file_hooks::emit_cap_file_hooks_ts;
 pub use playwright::emit_playwright_api_policy;
 pub use plural::pluralize;
 pub use preflight::{emit_preflight_index_ts, emit_preflight_ts};
-pub use runtime::{emit_feature_ts, emit_lifecycle_route_helpers_ts, lower_camel_export};
+pub use runtime::{
+    emit_feature_ts, emit_lifecycle_route_helpers_ts, lifecycle_route_helper_name,
+    lower_camel_export,
+};
 pub use semantic_formatters::emit_semantic_formatters_ts;
 pub use zod_constraints::{is_numeric, zod_constraint_chain, zod_enum_replacement};
 

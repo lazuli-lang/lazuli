@@ -7,6 +7,8 @@ use lazuli_ir::{
     DefaultValue, Feature, RequiresField, RequiresLifecycle, RequiresLifecycleIn, ViewGuard,
 };
 
+use crate::runtime::lifecycle_route_helper_name;
+
 use super::spec::{FieldGateEmit, ForbidEmit, GuardEmit, LifecycleEmit, OnlyWhenLifecycleEmit};
 use super::{lower_camel_export, snake_case};
 
@@ -110,7 +112,11 @@ pub(super) fn resolve_lifecycle_emit(
         return Some(LifecycleEmit {
             feature: feature.name.clone(),
             lookup_export: lower_camel_export(&lookup_name),
-            helper_export: lower_camel_export(&format!("{snake}_lifecycle_route")),
+            // SINGLE SOURCE OF TRUTH with the helper DEFINITION emitter
+            // (`runtime::emit_lifecycle_route_helpers_ts`). Must NOT drift
+            // — see `lifecycle_route_helper_name`'s doc comment for the
+            // TS2724 regression this guards.
+            helper_export: lifecycle_route_helper_name(&rl.resource),
             required_state: rl.state.clone(),
             allowed_states: None,
         });
@@ -146,7 +152,9 @@ pub(super) fn resolve_lifecycle_in_emit(
         return Some(LifecycleEmit {
             feature: feature.name.clone(),
             lookup_export: lower_camel_export(&lookup_name),
-            helper_export: lower_camel_export(&format!("{snake}_lifecycle_route")),
+            // SINGLE SOURCE OF TRUTH with the helper DEFINITION emitter —
+            // see `resolve_lifecycle_emit` above + the helper's doc.
+            helper_export: lifecycle_route_helper_name(&rli.resource),
             required_state: String::new(),
             allowed_states: Some(rli.allowed_states.clone()),
         });
