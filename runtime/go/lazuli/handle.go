@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1504,24 +1505,54 @@ func validateInputTags[I any](input I) error {
 	if v.Kind() != reflect.Struct {
 		return nil
 	}
+	// Two enforcement passes, both projecting to one validation_failed
+	// envelope. `required` is the W4-6 presence check; range is the
+	// BOUNDED-RANGE-SCALAR check (`min`/`max` — `between A and B` lowers to
+	// `min=A,max=B` in codegen, so it is covered here too).
 	missing := collectMissingRequired(v)
-	if len(missing) == 0 {
+	if len(missing) > 0 {
+		// A missing required field is the more fundamental failure (the value
+		// the range rule would inspect isn't even present), so it wins the
+		// envelope and short-circuits — matching the historical contract.
+		msg := "missing required field"
+		if len(missing) > 1 {
+			msg = "missing required fields"
+		}
+		return &Error{
+			Status:     400,
+			Code:       CodeValidationFailed,
+			Message:    msg + ": " + strings.Join(missing, ", "),
+			MessageKey: CodeValidationFailed,
+			Data:       map[string]any{"fields": missing},
+			Base: ErrorBase{
+				Status:  400,
+				Code:    CodeValidationFailed,
+				Message: msg + ": " + strings.Join(missing, ", "),
+				Surface: SurfaceUserDSL,
+			},
+		}
+	}
+	ranges := collectRangeViolations(v)
+	if len(ranges) == 0 {
 		return nil
 	}
-	msg := "missing required field"
-	if len(missing) > 1 {
-		msg = "missing required fields"
+	fields := make([]string, len(ranges))
+	details := make([]string, len(ranges))
+	for i, rv := range ranges {
+		fields[i] = rv.field
+		details[i] = rv.field + " " + rv.reason
 	}
+	msg := "field out of range: " + strings.Join(details, "; ")
 	return &Error{
 		Status:     400,
 		Code:       CodeValidationFailed,
-		Message:    msg + ": " + strings.Join(missing, ", "),
+		Message:    msg,
 		MessageKey: CodeValidationFailed,
-		Data:       map[string]any{"fields": missing},
+		Data:       map[string]any{"fields": fields},
 		Base: ErrorBase{
 			Status:  400,
 			Code:    CodeValidationFailed,
-			Message: msg + ": " + strings.Join(missing, ", "),
+			Message: msg,
 			Surface: SurfaceUserDSL,
 		},
 	}
@@ -1562,6 +1593,142 @@ func collectMissingRequired(v reflect.Value) []string {
 		}
 	}
 	return missing
+}
+
+// rangeViolation is one field whose value falls outside its declared
+// `min`/`max` bound. `reason` is a human fragment ("must be <= 100").
+type rangeViolation struct {
+	field  string
+	reason string
+}
+
+// collectRangeViolations walks a struct value and returns every field whose
+// value violates a `min=N` / `max=N` rule on its `validate` tag. This is the
+// runtime half of the BOUNDED-RANGE-SCALAR primitive: codegen stamps the
+// bound (authored as `min N` / `max N` / `between A and B`) onto the input
+// struct tag, and this pass enforces it BEFORE any effect runs, so an
+// out-of-range value surfaces as a 400 validation_failed rather than reaching
+// the INSERT/UPDATE.
+//
+// Semantics mirror go-playground/validator (without vendoring it):
+//   - numeric field (int/uint/float): the rule bounds the VALUE.
+//   - string field: the rule bounds the rune LENGTH (Lazuli also allows
+//     `min`/`max` on Text for length; this keeps that meaning intact).
+//
+// A nil optional pointer is skipped (absent ≠ out of range — the `required`
+// pass owns presence). Anonymous (embedded) structs are recursed into so
+// promoted fields are checked, matching collectMissingRequired.
+func collectRangeViolations(v reflect.Value) []rangeViolation {
+	var out []rangeViolation
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue // unexported
+		}
+		fv := v.Field(i)
+		if field.Anonymous {
+			ev := fv
+			for ev.Kind() == reflect.Pointer && !ev.IsNil() {
+				ev = ev.Elem()
+			}
+			if ev.Kind() == reflect.Struct {
+				out = append(out, collectRangeViolations(ev)...)
+			}
+			continue
+		}
+		tag := field.Tag.Get("validate")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		minStr, hasMin := tagRuleValue(tag, "min")
+		maxStr, hasMax := tagRuleValue(tag, "max")
+		if !hasMin && !hasMax {
+			continue
+		}
+		// Deref optional pointer; nil means absent — skip.
+		for fv.Kind() == reflect.Pointer {
+			if fv.IsNil() {
+				fv = reflect.Value{}
+				break
+			}
+			fv = fv.Elem()
+		}
+		if !fv.IsValid() {
+			continue
+		}
+		measure, ok := rangeMeasure(fv)
+		if !ok {
+			continue // not a value/length-measurable kind
+		}
+		name := jsonTagName(field.Tag.Get("json"))
+		if name == "" {
+			name = field.Name
+		}
+		if hasMin {
+			if bound, err := strconv.ParseFloat(minStr, 64); err == nil && measure < bound {
+				out = append(out, rangeViolation{field: name, reason: rangeReason(fv, "min", minStr)})
+				continue
+			}
+		}
+		if hasMax {
+			if bound, err := strconv.ParseFloat(maxStr, 64); err == nil && measure > bound {
+				out = append(out, rangeViolation{field: name, reason: rangeReason(fv, "max", maxStr)})
+			}
+		}
+	}
+	return out
+}
+
+// rangeMeasure returns the comparable magnitude of v for a `min`/`max`
+// check — the numeric value for numbers, the rune length for strings — and
+// whether v is a kind the range rule applies to. Bool and composite kinds
+// return false so a stray `min`/`max` on them is a no-op (the analyzer
+// already rejects those at author time; this is belt-and-suspenders).
+func rangeMeasure(v reflect.Value) (float64, bool) {
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return float64(v.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return float64(v.Uint()), true
+	case reflect.Float32, reflect.Float64:
+		return v.Float(), true
+	case reflect.String:
+		return float64(len([]rune(v.String()))), true
+	default:
+		return 0, false
+	}
+}
+
+// rangeReason renders the human fragment for a failed bound, keyed on whether
+// the field is value-bounded (numeric) or length-bounded (string).
+func rangeReason(v reflect.Value, kind, bound string) string {
+	word := "be at most"
+	if kind == "min" {
+		word = "be at least"
+	}
+	if v.Kind() == reflect.String {
+		return "length must " + word + " " + bound
+	}
+	return "must " + word + " " + bound
+}
+
+// tagRuleValue extracts the argument of a `key=value` rule from a `validate`
+// tag's comma-separated list (e.g. "min" in "required,min=0,max=100" yields
+// ("0", true)). A bare rule with no `=` (like "required") or an absent rule
+// yields ("", false).
+func tagRuleValue(tag, key string) (string, bool) {
+	if tag == "" || tag == "-" {
+		return "", false
+	}
+	prefix := key + "="
+	for _, part := range strings.Split(tag, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, prefix) {
+			return strings.TrimSpace(part[len(prefix):]), true
+		}
+	}
+	return "", false
 }
 
 // tagHasRule reports whether a `validate` tag's comma-separated rule list
