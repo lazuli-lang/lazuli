@@ -191,6 +191,119 @@ func TestValidateInputTagsPartialMissing(t *testing.T) {
 	}
 }
 
+// --- BOUNDED-RANGE-SCALAR — inline min/max enforcement at the write boundary
+
+// rangeInput models a command input carrying inline numeric bounds. The
+// codegen stamps these tags from `commission: Decimal min 0 max 100` (and
+// `between 0 and 100`, which lowers to `min=0,max=100`). Commission is the
+// canonical 0–100 percentage case from the pauta supplier pilot.
+type rangeInput struct {
+	Commission float64  `json:"commission" validate:"min=0,max=100"`
+	TaxRate    *float64 `json:"tax_rate,omitempty" validate:"min=0,max=100"`
+	Quantity   int64    `json:"quantity" validate:"min=1"`
+}
+
+// TestValidateInputTagsRejectsAboveMax proves a value above the `max` bound is
+// rejected with a 400 validation_failed naming the offending field — the gap
+// the pilots were hand-writing a @validator for.
+func TestValidateInputTagsRejectsAboveMax(t *testing.T) {
+	err := validateInputTags(rangeInput{Commission: 150, Quantity: 1})
+	le, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T (%v), want *Error", err, err)
+	}
+	if le.Status != 400 || le.Code != CodeValidationFailed {
+		t.Fatalf("envelope = {Status:%d Code:%q}, want {400 validation_failed}", le.Status, le.Code)
+	}
+	fields := le.Data.(map[string]any)["fields"].([]string)
+	if len(fields) != 1 || fields[0] != "commission" {
+		t.Fatalf("offending fields = %v, want [commission]", fields)
+	}
+}
+
+// TestValidateInputTagsRejectsBelowMin proves a value below the `min` bound is
+// rejected (the strictly-positive-ish `min=1` quantity case).
+func TestValidateInputTagsRejectsBelowMin(t *testing.T) {
+	err := validateInputTags(rangeInput{Commission: 10, Quantity: 0})
+	le, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T (%v), want *Error", err, err)
+	}
+	fields := le.Data.(map[string]any)["fields"].([]string)
+	if len(fields) != 1 || fields[0] != "quantity" {
+		t.Fatalf("offending fields = %v, want [quantity]", fields)
+	}
+}
+
+// TestValidateInputTagsRejectsOptionalPointerOutOfRange proves an OPTIONAL
+// (pointer) field is range-checked when present — tax_rate is `*float64`.
+func TestValidateInputTagsRejectsOptionalPointerOutOfRange(t *testing.T) {
+	bad := 250.0
+	err := validateInputTags(rangeInput{Commission: 10, Quantity: 1, TaxRate: &bad})
+	le, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T (%v), want *Error", err, err)
+	}
+	fields := le.Data.(map[string]any)["fields"].([]string)
+	if len(fields) != 1 || fields[0] != "tax_rate" {
+		t.Fatalf("offending fields = %v, want [tax_rate]", fields)
+	}
+}
+
+// TestValidateInputTagsInRangePasses proves an in-range payload passes,
+// including a present-but-valid optional and a boundary value (100 == max).
+func TestValidateInputTagsInRangePasses(t *testing.T) {
+	ok := 12.5
+	if err := validateInputTags(rangeInput{Commission: 100, Quantity: 1, TaxRate: &ok}); err != nil {
+		t.Fatalf("in-range input = %v, want nil", err)
+	}
+}
+
+// TestValidateInputTagsNilOptionalSkipsRange proves a nil optional is NOT a
+// range violation (absent ≠ out of range; the resource default applies).
+func TestValidateInputTagsNilOptionalSkipsRange(t *testing.T) {
+	if err := validateInputTags(rangeInput{Commission: 0, Quantity: 1}); err != nil {
+		t.Fatalf("nil optional tax_rate = %v, want nil", err)
+	}
+}
+
+// stringLenInput proves `min`/`max` keep their go-playground LENGTH meaning on
+// Text fields (Lazuli allows `min`/`max` on Text for rune length), so the new
+// numeric-value path does not silently change string semantics.
+type stringLenInput struct {
+	Code string `json:"code" validate:"min=2,max=4"`
+}
+
+// TestValidateInputTagsStringLengthBounds proves the string length bound still
+// fires (too short rejected, in-range passes).
+func TestValidateInputTagsStringLengthBounds(t *testing.T) {
+	if err := validateInputTags(stringLenInput{Code: "x"}); err == nil {
+		t.Fatal("1-char code under min=2 length = nil, want validation_failed")
+	}
+	if err := validateInputTags(stringLenInput{Code: "abc"}); err != nil {
+		t.Fatalf("3-char code within [2,4] = %v, want nil", err)
+	}
+	if err := validateInputTags(stringLenInput{Code: "abcde"}); err == nil {
+		t.Fatal("5-char code over max=4 length = nil, want validation_failed")
+	}
+}
+
+// TestValidateInputTagsRequiredWinsOverRange proves a missing required field
+// short-circuits before the range pass (the more fundamental failure), keeping
+// the historical single-envelope contract stable.
+func TestValidateInputTagsRequiredWinsOverRange(t *testing.T) {
+	type mixed struct {
+		Name       string  `json:"name" validate:"required"`
+		Commission float64 `json:"commission" validate:"min=0,max=100"`
+	}
+	err := validateInputTags(mixed{Commission: 999}) // both fail
+	le := err.(*Error)
+	fields := le.Data.(map[string]any)["fields"].([]string)
+	if len(fields) != 1 || fields[0] != "name" {
+		t.Fatalf("offending fields = %v, want [name] (required wins)", fields)
+	}
+}
+
 // --- BUG 3 (W1-1) — lifecycle transition tenant scoping -------------------
 
 // TestLifecycleLockScopesTenancyOrg proves the W1-1 fix on the pre-guard
