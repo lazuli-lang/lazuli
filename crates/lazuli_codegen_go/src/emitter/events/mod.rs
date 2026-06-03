@@ -124,10 +124,31 @@ pub fn emit_events_file(
         }
     }
 
+    // EVENT_GROUP-HOIST — the analyzer promotes every `event_group`
+    // variant into `Feature.events` (so command `emits <variant>`
+    // resolves against the flat event set). Those hoisted events carry
+    // the variant's full name and are ALREADY emitted as payload structs
+    // via the group/variant path above. Exclude them from the standalone
+    // loop so the payload struct is not emitted twice (which would
+    // duplicate fields in the merged `payloads` entry). The set covers
+    // both the variant full name (what the hoist uses) and the bare
+    // short name (defensive, matching this module's own name resolution).
+    let group_variant_names: BTreeSet<String> = groups
+        .iter()
+        .flat_map(|group| {
+            group.variants.iter().flat_map(move |variant| {
+                [
+                    event_name_for_group(&group.pattern, &variant.name),
+                    variant.name.clone(),
+                ]
+            })
+        })
+        .collect();
     let mut standalone_events: Vec<&Event> = feature
         .events
         .iter()
         .filter(|event| !matched_events.contains(event.name.as_str()))
+        .filter(|event| !group_variant_names.contains(event.name.as_str()))
         .collect();
     standalone_events.sort_by(|a, b| a.name.cmp(&b.name));
     for event in standalone_events {

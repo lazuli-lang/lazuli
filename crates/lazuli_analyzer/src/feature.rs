@@ -278,6 +278,21 @@ pub fn lower_feature_skeleton(
         synth_origins: std::collections::BTreeMap::new(),
         span_ref: Some(span_of(skeleton.span)),
     };
+    // EVENT_GROUP-HOIST — promote every `event_group` variant into the
+    // resolvable `Feature.events` set. Events authored in the modern
+    // grammar live ONLY inside `event_group <pattern> on <Resource>`
+    // blocks (the skeleton has no standalone `events` slot), so without
+    // this hoist `Feature.events` is permanently empty and a command's
+    // `emits <variant>` has nothing to resolve against — invisible to
+    // the reaction graph (VOCAB-EVENT-ORPHAN-001), the symbol index, and
+    // any consumer that reads `Feature.events`. The hoist computes each
+    // variant's full name from the group pattern prefix (`charge_*` +
+    // `confirmed` => `charge_confirmed`) and copies the variant's typed
+    // payload / kind / outbox verbatim. The variant records stay on
+    // `Feature.event_groups` (codegen's group/variant path remains the
+    // sole emitter of the payload structs; see
+    // `lazuli_codegen_go::emitter::events`), so this is purely additive.
+    hoist_event_group_variants(&mut feature);
     lifecycle::lower_lifecycles(&mut feature, &skeleton.resources);
     synthesize_auto_photo(&mut feature);
     // ir-resource-conventions-crud §5 — synthesize 3 commands + 2
@@ -296,6 +311,89 @@ pub fn lower_feature_skeleton(
     let _ = synthesize_conventions_with_overlays(&mut feature, &crud_overlays);
     resolve_enum_literal_bindings(&mut feature);
     Ok(feature)
+}
+
+/// EVENT_GROUP-HOIST — synthesize one `ir::Event` per `event_group`
+/// variant and append it to `Feature.events`, so a command/job/webhook
+/// `emits <variant>` resolves against the same flat event set a
+/// standalone `event` declaration would populate.
+///
+/// ## Why this is needed
+///
+/// The canonical `.lzi` grammar has no standalone `events` slot on the
+/// feature skeleton; every event is authored as an `event <name>` /
+/// `event.trace <name>` line *inside* an `event_group <pattern> on
+/// <Resource>` block, which lowers into `EventGroup.variants`. The
+/// structural lift therefore leaves `Feature.events` empty. The hoist
+/// re-materializes those variants as first-class events so every
+/// `Feature.events` consumer (the reaction-graph orphan rule, the
+/// symbol-origin index, cross-feature ref collection, future tools)
+/// sees them — without each consumer re-implementing group resolution.
+///
+/// ## Name + payload projection
+///
+/// The full event name is the group pattern's prefix (everything before
+/// the trailing `*`) concatenated with the variant's short name:
+/// `charge_*` + `confirmed` => `charge_confirmed`. A variant whose short
+/// name already carries the prefix is taken verbatim (defensive; the
+/// authored short names are unprefixed today). The variant's typed
+/// `fields`, `kind` (committed => Domain, trace => Trace) and `outbox`
+/// mode are copied verbatim. A field-less variant hoists with an empty
+/// payload and `payload_none = false`, so it still surfaces
+/// VOCAB-EVENT-PAYLOAD-001 MissingPayload exactly as a bare standalone
+/// `event` would.
+///
+/// ## Codegen invariant
+///
+/// The variant records are NOT removed from `Feature.event_groups`;
+/// `lazuli_codegen_go::emitter::events` keeps emitting the payload
+/// structs + `lazuli.EventGroup` value from the group/variant path and
+/// skips hoisted duplicates in its standalone-event loop, so generated
+/// Go stays byte-identical. Idempotent: a variant whose full name is
+/// already present in `Feature.events` (e.g. a future grammar that also
+/// authors standalone events) is not duplicated.
+fn hoist_event_group_variants(feature: &mut ir::Feature) {
+    use std::collections::HashSet;
+
+    let mut existing: HashSet<String> = feature.events.iter().map(|e| e.name.clone()).collect();
+    let mut hoisted: Vec<ir::Event> = Vec::new();
+    for group in &feature.event_groups {
+        for variant in &group.variants {
+            let full_name = event_group_variant_full_name(&group.pattern, &variant.name);
+            if !existing.insert(full_name.clone()) {
+                continue;
+            }
+            hoisted.push(ir::Event {
+                name: full_name,
+                kind: match variant.kind {
+                    ir::EventVariantKind::Committed => ir::EventKind::Domain,
+                    ir::EventVariantKind::Trace => ir::EventKind::Trace,
+                },
+                payload: variant.fields.clone(),
+                payload_none: false,
+                level: None,
+                outbox: variant.outbox,
+                previous_names: Vec::new(),
+                span_ref: variant.span_ref,
+            });
+        }
+    }
+    feature.events.extend(hoisted);
+}
+
+/// Compute the full event name for an `event_group` variant: the group
+/// pattern's prefix (text before the trailing `*`) prepended to the
+/// variant's short name. Mirrors the codegen projection in
+/// `lazuli_codegen_go::emitter::events::event_name_for_group` so the
+/// hoisted event name matches the name codegen renders for the same
+/// variant.
+pub(crate) fn event_group_variant_full_name(pattern: &str, short_name: &str) -> String {
+    let prefix = pattern.strip_suffix('*').unwrap_or(pattern);
+    if prefix.is_empty() || short_name.starts_with(prefix) {
+        short_name.to_owned()
+    } else {
+        format!("{prefix}{short_name}")
+    }
 }
 
 /// Lift hand-authored enum literals in command-effect bindings from
@@ -583,5 +681,146 @@ feature billing
         let feature = lower_one(ENUM_BINDING_SRC);
         let assignments = create_assignments(&feature, "capture_lead");
         assert!(matches!(assigned(&assignments, "owner"), ir::Expr::Path(_)));
+    }
+
+    // ── EVENT_GROUP-HOIST ─────────────────────────────────────────────────────
+
+    /// A feature whose only event source is an `event_group` with typed
+    /// variants. The structural lift leaves `Feature.events` empty (the
+    /// grammar has no standalone `events` slot); the hoist must promote
+    /// each variant into `Feature.events` under its group-prefixed full
+    /// name, preserving the typed payload + kind + outbox, so a command's
+    /// `emits <variant>` has something to resolve against.
+    const EVENT_GROUP_SRC: &str = r#"
+feature billing
+  domain
+    resource Charge
+      org: Org required
+      amount: Money required
+      created_at: DateTime required
+
+    event_group charge_* on Charge
+      payload
+        charge_id = id
+        org_id = org.id
+
+      event requested
+        outbox guaranteed
+        amount: Money
+
+      event confirmed
+        amount: Money
+        paid_at: DateTime
+
+      event.trace audited
+        actor_id: ID
+
+  command open_charge
+    input
+      amount: Money required
+    creates Charge
+      org = ctx.actor.org_id
+      amount = input.amount
+    emits charge_requested
+"#;
+
+    #[test]
+    fn event_group_variants_hoisted_into_feature_events() {
+        let feature = lower_one(EVENT_GROUP_SRC);
+        // Variants must surface as first-class events under the
+        // group-prefixed full name.
+        let names: Vec<&str> = feature.events.iter().map(|e| e.name.as_str()).collect();
+        assert!(
+            names.contains(&"charge_requested"),
+            "charge_requested must be hoisted into Feature.events, got {names:?}"
+        );
+        assert!(names.contains(&"charge_confirmed"), "got {names:?}");
+        assert!(names.contains(&"charge_audited"), "got {names:?}");
+
+        // Typed payload is preserved from the variant fields.
+        let requested = feature
+            .events
+            .iter()
+            .find(|e| e.name == "charge_requested")
+            .expect("charge_requested hoisted");
+        assert_eq!(requested.kind, ir::EventKind::Domain);
+        assert_eq!(
+            requested.outbox,
+            ir::OutboxMode::Guaranteed,
+            "outbox guaranteed must carry onto the hoisted event"
+        );
+        assert!(
+            requested.payload.iter().any(|f| f.name == "amount"),
+            "variant typed payload must be preserved"
+        );
+        assert!(
+            !requested.payload_none,
+            "hoisted variant must not be marked payload_none"
+        );
+
+        // `event.trace` variants hoist as Trace-kind events.
+        let audited = feature
+            .events
+            .iter()
+            .find(|e| e.name == "charge_audited")
+            .expect("charge_audited hoisted");
+        assert_eq!(audited.kind, ir::EventKind::Trace);
+    }
+
+    #[test]
+    fn hoisted_event_lets_command_emit_resolve() {
+        // The command authored `emits charge_requested`; the emit string
+        // is carried through lowering AND now resolves against a real
+        // hoisted `Feature.events` entry of the same name.
+        let feature = lower_one(EVENT_GROUP_SRC);
+        let cmd = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "open_charge")
+            .expect("open_charge present");
+        assert!(
+            cmd.emits.iter().any(|e| e == "charge_requested"),
+            "emit must lower onto the command: {:?}",
+            cmd.emits
+        );
+        assert!(
+            feature.events.iter().any(|e| e.name == "charge_requested"),
+            "the emitted event must exist in the resolvable Feature.events set"
+        );
+        // The variant records stay on the group (codegen's sole emitter).
+        assert!(
+            feature
+                .event_groups
+                .iter()
+                .any(|g| g.variants.iter().any(|v| v.name == "requested")),
+            "variant records must remain on Feature.event_groups"
+        );
+    }
+
+    #[test]
+    fn hoist_is_idempotent_on_repeated_lower() {
+        // Lowering the same source twice must not accumulate duplicate
+        // hoisted events (guards against a double-hoist regression).
+        let a = lower_one(EVENT_GROUP_SRC);
+        let b = lower_one(EVENT_GROUP_SRC);
+        let count_a = a.events.iter().filter(|e| e.name == "charge_requested").count();
+        let count_b = b.events.iter().filter(|e| e.name == "charge_requested").count();
+        assert_eq!(count_a, 1, "exactly one hoisted charge_requested");
+        assert_eq!(count_b, 1);
+    }
+
+    #[test]
+    fn variant_full_name_uses_pattern_prefix() {
+        assert_eq!(
+            event_group_variant_full_name("charge_*", "confirmed"),
+            "charge_confirmed"
+        );
+        // Already-prefixed short name is taken verbatim (defensive).
+        assert_eq!(
+            event_group_variant_full_name("charge_*", "charge_confirmed"),
+            "charge_confirmed"
+        );
+        // A pattern with no glob prefix yields the bare name.
+        assert_eq!(event_group_variant_full_name("*", "confirmed"), "confirmed");
     }
 }

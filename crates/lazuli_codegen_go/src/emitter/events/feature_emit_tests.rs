@@ -121,3 +121,71 @@ fn feature_emit_entry_point_emits_standalone_event_payload() {
     assert!(out.contains("CustomerID lazuli.ID    `json:\"customer_id\"`"));
     assert!(out.contains("Email      lazuli.Email `json:\"email\"`"));
 }
+
+/// EVENT_GROUP-HOIST — after the analyzer hoists an `event_group`
+/// variant into `Feature.events`, the events emitter must still produce
+/// the variant payload struct EXACTLY ONCE (from the group/variant
+/// path), not a second time via the standalone-event loop. A duplicate
+/// would emit the struct twice with doubled fields and break `go build`.
+#[test]
+fn hoisted_group_variant_payload_struct_emitted_once() {
+    use lazuli_ir::{EventGroup, EventVariant, EventVariantKind};
+
+    let variant_fields = vec![EventField {
+        name: "amount".to_owned(),
+        type_ref: TypeRef::Builtin(BuiltinType::Id),
+        optional: false,
+    }];
+    let mut feature = feature_with_standalone_event();
+    // Drop the unrelated standalone event so the assertion is precise.
+    feature.events = vec![Event {
+        // The analyzer hoists the variant under the group-prefixed name.
+        name: "charge_confirmed".to_owned(),
+        kind: EventKind::Domain,
+        payload: variant_fields.clone(),
+        payload_none: false,
+        level: None,
+        outbox: OutboxMode::None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    }];
+    feature.event_groups = vec![EventGroup {
+        pattern: "charge_*".to_owned(),
+        on_resource: Some("Charge".to_owned()),
+        raw_payload: vec![],
+        raw_audit: None,
+        events: vec!["confirmed".to_owned()],
+        events_outbox: vec![],
+        variants: vec![EventVariant {
+            name: "confirmed".to_owned(),
+            kind: EventVariantKind::Committed,
+            outbox: OutboxMode::None,
+            fields: variant_fields,
+            span_ref: None,
+        }],
+        span_ref: None,
+    }];
+
+    let module = module_with_feature(feature.clone());
+    let cross_index = CrossFeatureIndex::build(&module);
+    let out = emit_events_file(
+        "features/billing/billing.lzi",
+        &feature,
+        "lazuli/test",
+        &cross_index,
+    )
+    .expect("feature with an event group must emit events.gen.go");
+
+    let struct_decls = out.matches("type ChargeConfirmedPayload struct {").count();
+    assert_eq!(
+        struct_decls, 1,
+        "hoisted variant payload struct must be emitted exactly once, not duplicated \
+         via the standalone-event path:\n{out}"
+    );
+    // And the single struct must carry the field exactly once.
+    assert_eq!(
+        out.matches("Amount").count(),
+        1,
+        "payload field must not be duplicated:\n{out}"
+    );
+}
