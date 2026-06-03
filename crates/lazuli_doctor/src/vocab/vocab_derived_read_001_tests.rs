@@ -419,3 +419,109 @@
             "required fields must not trigger VOCAB-DERIVED-READ-001"
         );
     }
+
+    // ── waiver wiring (spec 0028) ────────────────────────────────────────────
+    //
+    // The rule's message advertises
+    // `@doctor.allow(VOCAB-DERIVED-READ-001, reason: "…")` for an intentionally
+    // read-only/materialized field. These tests write the source to a real
+    // on-disk `.lzi` so `check`'s `file_contains_doctor_allow(path, CODE)` scan
+    // observes the waiver — the pre-fix gap was that this scan was never
+    // consulted, so the opt-out was inert.
+
+    fn lower_from_source(source: &str) -> Feature {
+        let skeletons =
+            lazuli_syntax::parse_feature_skeletons(source).expect("parse feature skeletons");
+        lazuli_analyzer::lower_feature_skeleton(&skeletons[0]).expect("lower feature")
+    }
+
+    /// The never-written optional field fixture WITHOUT a waiver (on disk) fires.
+    #[test]
+    fn on_disk_without_waiver_still_fires() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("post.lzi");
+        let source = r#"
+feature post
+  domain
+    resource Post
+      id: ID required
+      canonical_url: Text
+"#;
+        std::fs::write(&path, source).expect("write fixture");
+        let feature = lower_from_source(source);
+        let findings = check(&feature, &path);
+        assert_eq!(
+            findings.len(),
+            1,
+            "no waiver present → finding must stand: {findings:?}"
+        );
+        assert_eq!(findings[0].field, "canonical_url");
+    }
+
+    /// A `@doctor.allow(VOCAB-DERIVED-READ-001, …)` node suppresses the finding.
+    #[test]
+    fn node_form_doctor_allow_suppresses() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("post.lzi");
+        let source = r#"
+@doctor.allow(VOCAB-DERIVED-READ-001, reason: "materialized read column, backfilled by ETL")
+feature post
+  domain
+    resource Post
+      id: ID required
+      canonical_url: Text
+"#;
+        std::fs::write(&path, source).expect("write fixture");
+        let feature = lower_from_source(source);
+        let findings = check(&feature, &path);
+        assert!(
+            findings.is_empty(),
+            "@doctor.allow(VOCAB-DERIVED-READ-001, …) must suppress: {findings:?}"
+        );
+    }
+
+    /// The legacy `# doctor:allow VOCAB-DERIVED-READ-001` comment form also
+    /// suppresses (back-compat bridge).
+    #[test]
+    fn legacy_comment_form_doctor_allow_suppresses() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("post.lzi");
+        let source = r#"
+# doctor:allow VOCAB-DERIVED-READ-001 — reason "materialized read column"
+feature post
+  domain
+    resource Post
+      id: ID required
+      canonical_url: Text
+"#;
+        std::fs::write(&path, source).expect("write fixture");
+        let feature = lower_from_source(source);
+        let findings = check(&feature, &path);
+        assert!(
+            findings.is_empty(),
+            "legacy # doctor:allow comment must suppress: {findings:?}"
+        );
+    }
+
+    /// A waiver for a DIFFERENT code does not suppress this finding.
+    #[test]
+    fn doctor_allow_for_other_code_does_not_suppress() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("post.lzi");
+        let source = r#"
+@doctor.allow(SOME-OTHER-RULE-001, reason: "unrelated")
+feature post
+  domain
+    resource Post
+      id: ID required
+      canonical_url: Text
+"#;
+        std::fs::write(&path, source).expect("write fixture");
+        let feature = lower_from_source(source);
+        let findings = check(&feature, &path);
+        assert_eq!(
+            findings.len(),
+            1,
+            "a waiver for a different code must not suppress: {findings:?}"
+        );
+    }
