@@ -63,7 +63,9 @@ impl Finding {
         format!(
             "field `{}.{}` is never written by any command or job — \
              if it is computed at read time, consider `derived from <expr>` \
-             (docs/invariants.md:89-92)",
+             (docs/invariants.md:89-92). If the field is intentionally a \
+             read-only/materialized column, add \
+             `@doctor.allow(VOCAB-DERIVED-READ-001, reason: \"...\")` near the resource.",
             self.resource, self.field,
         )
     }
@@ -86,6 +88,15 @@ impl Finding {
 /// let _ = check(&feature, Path::new("billing.lzi"));
 /// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
+    // Waiver wiring (spec 0028): honor the canonical escape hatch the
+    // message advertises — `@doctor.allow(VOCAB-DERIVED-READ-001, reason: "…")`
+    // (or the legacy `# doctor:allow VOCAB-DERIVED-READ-001`) — so an
+    // intentionally read-only/materialized field is suppressible. Without
+    // this the message lied: the opt-out was inert and the finding fired
+    // regardless. Read failures degrade to "no opt-out applied".
+    if crate::allow_comment::file_contains_doctor_allow(path, Finding::CODE) {
+        return Vec::new();
+    }
     let written = collect_write_sites(&feature.commands, &feature.jobs);
     feature
         .resources

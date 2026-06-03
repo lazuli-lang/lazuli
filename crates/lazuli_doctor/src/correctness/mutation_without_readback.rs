@@ -8,7 +8,7 @@
 //! inference stays empty AND there is nothing for the front-end cache to
 //! invalidate — the post-mutation UI silently keeps stale state.
 //!
-//! This diagnostic surfaces that gap. The author has three explicit
+//! This diagnostic surfaces that gap. The author has four explicit
 //! ways out:
 //!   * Add `query lookup_my_<r>` / `query.list mine_<r>s` (the canonical
 //!     read shape — same form A5 wires invalidates against).
@@ -17,6 +17,10 @@
 //!     `list_<r>`).
 //!   * Author the read query in a different feature that `uses` this
 //!     one — cross-feature reads count, per the cycle decision.
+//!   * If no readback is genuinely intentional, waive it with
+//!     `@doctor.allow(MUTATION-WITHOUT-READBACK-001, reason: "…")`
+//!     (legacy `# doctor:allow MUTATION-WITHOUT-READBACK-001` also works)
+//!     near the command. The shared waiver scanner honors both forms.
 //!
 //! Diagnostic ID: `@correctness.mutation_without_readback` (catalog
 //! code `MUTATION-WITHOUT-READBACK-001`). Severity: warning.
@@ -70,8 +74,9 @@ impl Finding {
         format!(
             "command '{}' mutates resource '{}' but no Query reads it back. \
              Front-end consumers will have no cached state to invalidate; \
-             either add 'query lookup_my_{}' / 'query.list mine_{}s' or \
-             document why no readback is needed.",
+             either add 'query lookup_my_{}' / 'query.list mine_{}s', or — if no \
+             readback is intentional — add \
+             '@doctor.allow(MUTATION-WITHOUT-READBACK-001, reason: \"...\")' near the command.",
             self.command, self.resource_display, self.resource_snake, self.resource_snake
         )
     }
@@ -128,11 +133,12 @@ where
         read_index.push_feature(n);
     }
 
-    feature
+    let findings = feature
         .commands
         .iter()
         .filter_map(|cmd| build_finding(&feature.name, &cmd.name, &cmd.effect, &read_index, path))
-        .collect()
+        .collect();
+    filter_waived(findings, path)
 }
 
 /// Doctor-side dispatch entry point. Takes pre-extracted `(feature_name,
@@ -167,10 +173,29 @@ pub fn check_from_facts(
         read_index.push_queries(feat, qs);
     }
 
-    commands
+    let findings = commands
         .iter()
         .filter_map(|cmd| build_finding(feature_name, &cmd.name, &cmd.effect, &read_index, path))
-        .collect()
+        .collect();
+    filter_waived(findings, path)
+}
+
+/// Drop every finding whose source `path` carries a
+/// `@doctor.allow(MUTATION-WITHOUT-READBACK-001, reason: "…")` node (or the
+/// legacy `# doctor:allow MUTATION-WITHOUT-READBACK-001` comment). The
+/// message advertises this escape hatch, so without honoring it the opt-out
+/// would be inert and the warning would fire regardless. The waiver is
+/// file-scoped — every finding anchored at `path` shares the verdict, so the
+/// disk read happens at most once. Read failures degrade to "no opt-out
+/// applied" (the finding stands).
+fn filter_waived(findings: Vec<Finding>, path: &Path) -> Vec<Finding> {
+    if findings.is_empty() {
+        return findings;
+    }
+    if crate::allow_comment::file_contains_doctor_allow(path, Finding::CODE) {
+        return Vec::new();
+    }
+    findings
 }
 
 #[derive(Default)]
